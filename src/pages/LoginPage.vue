@@ -21,20 +21,35 @@
           class="q-mb-md"
         />
         <div class="text-h3 text-dark text-weight-medium">Prijava</div>
-        <div class="text-subtitle1 text-dark q-mt-sm">Prijavite se u AuctionGO sustav</div>
+        <div class="text-subtitle1 text-dark q-mt-sm">Prijavite se u AuctionGO! sustav</div>
       </q-card-section>
 
       <q-card-section>
         <q-input
+          v-model="login"
           outlined
-          label="Email"
+          label="Korisničko ime ili email"
           color="dark"
           input-class="text-dark"
-          type="email"
           class="q-mb-md"
         />
 
-        <q-input outlined label="Lozinka" color="dark" input-class="text-dark" type="password" />
+        <q-input
+          v-model="password"
+          outlined
+          label="Lozinka"
+          color="dark"
+          input-class="text-dark"
+          :type="showPassword ? 'text' : 'password'"
+        >
+          <template v-slot:append>
+            <q-icon
+              :name="showPassword ? 'visibility_off' : 'visibility'"
+              class="cursor-pointer"
+              @click="showPassword = !showPassword"
+            />
+          </template>
+        </q-input>
       </q-card-section>
 
       <q-card-actions align="center">
@@ -46,6 +61,7 @@
           unelevated
           rounded
           class="q-px-xl"
+          @click="loginUser"
         />
       </q-card-actions>
 
@@ -58,4 +74,47 @@
   </div>
 </template>
 
-<script setup></script>
+<script setup>
+import { ref } from 'vue'
+import axios from 'axios'
+import { Notify } from 'quasar'
+
+const login = ref('')
+const password = ref('')
+
+const showPassword = ref(false)
+
+async function loginUser() {
+  try {
+    const response = await axios.post('http://localhost:3000/login', {
+      login: login.value,
+      password: password.value,
+    })
+
+    console.log(response.data)
+    localStorage.setItem('auctiongo_user', JSON.stringify(response.data.user))
+
+    Notify.create({
+      type: 'positive',
+      message: response.data.message,
+      position: 'center',
+    })
+
+    setTimeout(() => {
+      if (response.data.user.korisnik_verificiran === 'ne') {
+        window.location.href = '/complete-profile'
+      } else {
+        window.location.href = '/'
+      }
+    }, 1000)
+  } catch (error) {
+    console.error(error)
+
+    Notify.create({
+      type: 'negative',
+      message: error.response?.data?.message || 'Prijava nije uspjela.',
+      position: 'center',
+    })
+  }
+}
+</script>

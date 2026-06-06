@@ -13,30 +13,40 @@
               letter-spacing: 0.7px;
             "
           >
-            AuctionGO
+            AuctionGO!
           </router-link>
         </q-toolbar-title>
 
-        <q-btn
-          color="primary"
-          text-color="dark"
-          label="Prijava"
-          no-caps
-          unelevated
-          rounded
-          to="/login"
-          class="q-mr-sm"
-        />
+        <template v-if="!user">
+          <q-btn
+            color="primary"
+            text-color="dark"
+            label="Prijava"
+            no-caps
+            unelevated
+            rounded
+            to="/login"
+            class="q-mr-sm"
+          />
 
-        <q-btn
-          outline
-          color="primary"
-          label="Registracija"
-          no-caps
-          rounded
-          to="/register"
-          style="color: #f9f6ef"
-        />
+          <q-btn
+            outline
+            color="primary"
+            label="Registracija"
+            no-caps
+            rounded
+            to="/register"
+            style="color: #f9f6ef"
+          />
+        </template>
+
+        <template v-else>
+          <div class="text-white q-mr-md">
+            {{ user.korisnik_username }}
+          </div>
+
+          <q-btn outline color="primary" label="Odjava" no-caps rounded @click="logout" />
+        </template>
       </q-toolbar>
     </q-header>
 
@@ -46,4 +56,13 @@
   </q-layout>
 </template>
 
-<script setup></script>
+<script setup>
+import { ref } from 'vue'
+
+const user = ref(JSON.parse(localStorage.getItem('auctiongo_user')))
+
+function logout() {
+  localStorage.removeItem('auctiongo_user')
+  location.reload()
+}
+</script>

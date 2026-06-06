@@ -16,28 +16,22 @@
       <q-card-section class="text-center">
         <img
           src="../assets/CleanLogoAukcijeGo.png"
-          alt="AuctionGO"
+          alt="AuctionGO!-logo"
           style="max-width: 220px; width: 100%"
           class="q-mb-md"
         />
 
         <div class="text-h3 text-dark text-weight-medium">Registracija</div>
 
-        <div class="text-subtitle1 text-dark q-mt-sm">Kreirajte korisnički račun za AuctionGO</div>
+        <div class="text-subtitle1 text-dark q-mt-sm">Kreirajte korisnički račun za AuctionGO!</div>
       </q-card-section>
 
       <q-card-section>
-        <q-input outlined label="Ime i prezime" color="dark" input-class="text-dark" />
-        <q-input
-          outlined
-          label="Email"
-          type="email"
-          color="dark"
-          input-class="text-dark"
-          class="q-mt-md"
-        />
+        <q-input v-model="firstName" outlined label="Ime" color="dark" input-class="text-dark" />
+        <q-input v-model="lastName" outlined label="Prezime" color="dark" input-class="text-dark" />
 
         <q-input
+          v-model="username"
           outlined
           label="Korisničko ime"
           color="dark"
@@ -46,22 +40,54 @@
         />
 
         <q-input
+          v-model="email"
           outlined
-          label="Lozinka"
-          type="password"
+          label="Email"
+          type="email"
           color="dark"
           input-class="text-dark"
           class="q-mt-md"
+          :rules="[
+            (val) => !!val || 'Email je obavezan',
+            (val) => /.+@.+\..+/.test(val) || 'Unesite ispravnu email adresu',
+          ]"
         />
 
         <q-input
+          v-model="password"
           outlined
-          label="Potvrda lozinke"
-          type="password"
+          label="Lozinka"
+          :type="showPassword ? 'text' : 'password'"
           color="dark"
           input-class="text-dark"
           class="q-mt-md"
-        />
+        >
+          <template v-slot:append>
+            <q-icon
+              :name="showPassword ? 'visibility_off' : 'visibility'"
+              class="cursor-pointer"
+              @click="showPassword = !showPassword"
+            />
+          </template>
+        </q-input>
+
+        <q-input
+          v-model="confirmPassword"
+          outlined
+          label="Potvrda lozinke"
+          :type="showConfirmPassword ? 'text' : 'password'"
+          color="dark"
+          input-class="text-dark"
+          class="q-mt-md"
+        >
+          <template v-slot:append>
+            <q-icon
+              :name="showConfirmPassword ? 'visibility_off' : 'visibility'"
+              class="cursor-pointer"
+              @click="showConfirmPassword = !showConfirmPassword"
+            />
+          </template>
+        </q-input>
       </q-card-section>
       <q-card-actions align="center">
         <q-btn
@@ -72,6 +98,8 @@
           unelevated
           rounded
           class="q-px-xl"
+          type="button"
+          @click="registerUser"
         />
       </q-card-actions>
       <q-card-section class="text-center q-pt-none">
@@ -83,4 +111,60 @@
   </div>
 </template>
 
-<script setup></script>
+<script setup>
+import { ref } from 'vue'
+import axios from 'axios'
+import { Notify } from 'quasar'
+import { useRouter } from 'vue-router'
+
+const firstName = ref('')
+const lastName = ref('')
+const username = ref('')
+const email = ref('')
+const password = ref('')
+const confirmPassword = ref('')
+const router = useRouter()
+
+async function registerUser() {
+  if (password.value !== confirmPassword.value) {
+    Notify.create({
+      type: 'negative',
+      message: 'Lozinka i potvrda lozinke nisu jednake.',
+      position: 'center',
+    })
+    return
+  }
+
+  try {
+    const response = await axios.post('http://localhost:3000/register', {
+      firstName: firstName.value,
+      lastName: lastName.value,
+      username: username.value,
+      email: email.value,
+      password: password.value,
+      confirmPassword: confirmPassword.value,
+    })
+
+    Notify.create({
+      type: 'positive',
+      message: response.data.message,
+      position: 'center',
+    })
+
+    setTimeout(() => {
+      router.push('/login')
+    }, 1200)
+  } catch (error) {
+    console.error(error)
+
+    Notify.create({
+      type: 'negative',
+      message: error.response?.data?.message || 'Registracija nije uspjela.',
+      position: 'center',
+    })
+  }
+}
+
+const showPassword = ref(false)
+const showConfirmPassword = ref(false)
+</script>
