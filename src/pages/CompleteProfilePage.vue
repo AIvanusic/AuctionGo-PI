@@ -54,6 +54,24 @@
 
       <q-card-actions align="center">
         <q-btn
+          outline
+          color="dark"
+          label="Otvori uvjete korištenja"
+          no-caps
+          href="/docs/uvjeti-koristenja-v1.pdf"
+          target="_blank"
+          @click="termsOpened = true"
+        />
+
+        <q-checkbox
+          v-model="termsAccepted"
+          :disable="!termsOpened"
+          color="primary"
+          label="Pročitala/pročitao sam i prihvaćam uvjete korištenja sustava AuctionGO!"
+          class="q-my-md"
+        />
+
+        <q-btn
           color="primary"
           text-color="dark"
           label="Dovrši profil"
@@ -77,6 +95,9 @@ import { useRouter } from 'vue-router'
 
 const user = JSON.parse(localStorage.getItem('auctiongo_user'))
 const router = useRouter()
+
+const termsOpened = ref(false)
+const termsAccepted = ref(false)
 
 console.log(user)
 
@@ -104,13 +125,32 @@ async function completeProfile() {
     return
   }
 
-  const response = await axios.post('http://localhost:3000/complete-profile', {
-    userId: user.korisnik_sifra,
-    oib: oib.value,
-    adresa: adresa.value,
-    mobitel: mobitel.value,
-    iban: iban.value,
-  })
+  if (!termsAccepted.value) {
+    Notify.create({
+      type: 'negative',
+      message: 'Za dovršetak profila potrebno je prihvatiti uvjete korištenja.',
+      position: 'center',
+    })
+    return
+  }
+
+  const token = localStorage.getItem('auctiongo_token')
+
+  const response = await axios.post(
+    'http://localhost:3000/complete-profile',
+    {
+      oib: oib.value,
+      adresa: adresa.value,
+      mobitel: mobitel.value,
+      iban: iban.value,
+      uvjetiSifra: 1,
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  )
 
   user.korisnik_verificiran = 'da'
   localStorage.setItem('auctiongo_user', JSON.stringify(user))

@@ -93,6 +93,7 @@ async function loginUser() {
 
     console.log(response.data)
     localStorage.setItem('auctiongo_user', JSON.stringify(response.data.user))
+    localStorage.setItem('auctiongo_token', response.data.token)
 
     Notify.create({
       type: 'positive',
