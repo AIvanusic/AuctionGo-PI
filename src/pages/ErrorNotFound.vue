@@ -1,21 +1,21 @@
 <template>
-  <div class="fullscreen bg-blue text-white text-center q-pa-md flex flex-center">
+  <div
+    class="fullscreen text-white text-center q-pa-md flex flex-center"
+    style="background-color: #0f172a"
+  >
     <div>
-      <div style="font-size: 30vh">
-        404
-      </div>
+      <div style="font-size: 30vh; color: #d4a017; font-weight: 700">404</div>
 
-      <div class="text-h2" style="opacity:.4">
-        Oops. Nothing here...
-      </div>
+      <div class="text-h4 text-grey-3 q-mb-md">Stranica AuctionGo! nije pronađena</div>
 
       <q-btn
         class="q-mt-xl"
-        color="white"
-        text-color="blue"
+        color="amber-8"
+        text-color="blue-grey-10"
         unelevated
+        rounded
         to="/"
-        label="Go Home"
+        label="Povratak na početnu"
         no-caps
       />
     </div>
