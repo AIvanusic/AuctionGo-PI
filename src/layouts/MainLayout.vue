@@ -41,7 +41,7 @@
         </template>
 
         <template v-else>
-          <q-btn flat no-caps icon="person" :label="user.korisnik_username" to="/user-profile" />
+          <q-btn flat no-caps icon="person" :label="user.korisnik_username" @click="goToUserArea" />
 
           <q-btn outline color="primary" label="Odjava" no-caps rounded @click="logout" />
         </template>
@@ -56,8 +56,13 @@
 
 <script setup>
 import { ref } from 'vue'
+import { redirectByRole } from '../utils/redirectByRole'
 
 const user = ref(JSON.parse(localStorage.getItem('auctiongo_user')))
+
+function goToUserArea() {
+  redirectByRole(user.value)
+}
 
 function logout() {
   localStorage.removeItem('auctiongo_user')

@@ -91,10 +91,8 @@
 import { ref } from 'vue'
 import axios from 'axios'
 import { Notify } from 'quasar'
-import { useRouter } from 'vue-router'
 
 const user = JSON.parse(localStorage.getItem('auctiongo_user'))
-const router = useRouter()
 
 const termsOpened = ref(false)
 const termsAccepted = ref(false)
@@ -162,8 +160,7 @@ async function completeProfile() {
   })
 
   setTimeout(() => {
-    router.push('/')
-    location.reload()
+    window.location.href = '/'
   }, 1000)
 }
 </script>

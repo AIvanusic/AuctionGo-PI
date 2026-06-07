@@ -39,15 +39,18 @@ function verifyToken(req, res, next) {
   }
 }
 
-const db = await mysql.createConnection({
+const db = mysql.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   port: process.env.DB_PORT,
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0,
 })
 
-console.log('Spojena baza podataka')
+console.log('Pool veza s bazom podataka je spremna')
 
 app.get('/', (req, res) => {
   res.json({
@@ -356,16 +359,20 @@ app.get('/api/admin/artifacts', verifyToken, async (req, res) => {
         a.artefakt_cijena_trazena,
         a.artefakt_procjena_sifra,
         a.artefakt_procjenitelj_sifra,
+        a.artefakt_voditelj_sifra,
         a.artefakt_odobren,
         a.artefakt_odbijen,
         a.artefakt_povucen,
         a.artefakt_prodan,
         k.korisnik_ime,
         k.korisnik_prezime,
-        k.korisnik_email
+        k.korisnik_email,
+        v.korisnik_username AS voditelj_username
       FROM PI2_proj_ARTEFAKT a
       JOIN PI2_proj_KORISNIK k
         ON a.artefakt_korisnik_sifra = k.korisnik_sifra
+      LEFT JOIN PI2_proj_KORISNIK v
+        ON a.artefakt_voditelj_sifra = v.korisnik_sifra
       ORDER BY a.artefakt_sifra DESC
     `)
 
@@ -469,6 +476,8 @@ app.get('/api/appraiser/my-artifacts', verifyToken, async (req, res) => {
       JOIN PI2_proj_KORISNIK k
         ON a.artefakt_korisnik_sifra = k.korisnik_sifra
       WHERE a.artefakt_procjenitelj_sifra = ?
+      AND a.artefakt_procjena_sifra IS NULL
+      AND a.artefakt_povucen = 'nije povucen'
       ORDER BY a.artefakt_sifra DESC
       `,
       [userId],
@@ -478,6 +487,488 @@ app.get('/api/appraiser/my-artifacts', verifyToken, async (req, res) => {
   } catch (error) {
     console.error('Greška kod dohvaćanja artefakata procjenitelja:', error)
     res.status(500).json({ message: 'Greška na serveru.' })
+  }
+})
+
+app.post('/api/appraiser/artifacts/:artifactId/appraisal', verifyToken, async (req, res) => {
+  const { artifactId } = req.params
+  const userId = req.user.korisnik_sifra
+
+  const {
+    procjena_opis,
+    procjena_fotografija,
+    procjena_dodatni_dokazi,
+    procjena_cijena_procijenjena,
+    procjena_preporuka,
+  } = req.body
+
+  try {
+    const [assignedArtifacts] = await db.query(
+      `
+      SELECT artefakt_sifra
+      FROM PI2_proj_ARTEFAKT
+      WHERE artefakt_sifra = ?
+        AND artefakt_procjenitelj_sifra = ?
+      `,
+      [artifactId, userId],
+    )
+
+    if (assignedArtifacts.length === 0) {
+      return res.status(403).json({
+        message: 'Nemate ovlasti procijeniti ovaj artefakt.',
+      })
+    }
+
+    const [result] = await db.query(
+      `
+      INSERT INTO PI2_proj_PROCJENA (
+        procjena_opis,
+        procjena_fotografija,
+        procjena_dodatni_dokazi,
+        procjena_cijena_procijenjena,
+        procjena_korisnik_sifra,
+        procjena_preporuka
+      )
+      VALUES (?, ?, ?, ?, ?, ?)
+      `,
+      [
+        procjena_opis,
+        procjena_fotografija || null,
+        procjena_dodatni_dokazi || null,
+        procjena_cijena_procijenjena,
+        userId,
+        procjena_preporuka,
+      ],
+    )
+
+    await db.query(
+      `
+      UPDATE PI2_proj_ARTEFAKT
+      SET artefakt_procjena_sifra = ?
+      WHERE artefakt_sifra = ?
+      `,
+      [result.insertId, artifactId],
+    )
+
+    res.json({
+      message: 'Procjena je uspješno spremljena.',
+      procjena_sifra: result.insertId,
+    })
+  } catch (error) {
+    console.error('Greška kod spremanja procjene:', error)
+    res.status(500).json({ message: 'Greška na serveru.' })
+  }
+})
+
+app.get('/api/appraiser/appraisal-history', verifyToken, async (req, res) => {
+  const userId = req.user.korisnik_sifra
+
+  try {
+    const [rows] = await db.query(
+      `
+      SELECT
+        a.artefakt_sifra,
+        a.artefakt_naziv,
+        a.artefakt_stanje,
+        p.procjena_cijena_procijenjena,
+        p.procjena_preporuka,
+        p.procjena_datum
+      FROM PI2_proj_PROCJENA p
+      JOIN PI2_proj_ARTEFAKT a
+        ON a.artefakt_procjena_sifra = p.procjena_sifra
+      WHERE p.procjena_korisnik_sifra = ?
+      ORDER BY p.procjena_datum DESC
+      `,
+      [userId],
+    )
+
+    res.json(rows)
+  } catch (error) {
+    console.error('Greška kod dohvaćanja povijesti procjena:', error)
+    res.status(500).json({ message: 'Greška na serveru.' })
+  }
+})
+
+app.get('/api/admin/appraisals', verifyToken, async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT
+        a.artefakt_sifra,
+        a.artefakt_naziv,
+        k.korisnik_ime,
+        k.korisnik_prezime,
+        p.procjena_sifra,
+        p.procjena_cijena_procijenjena,
+        p.procjena_preporuka,
+        p.procjena_datum
+      FROM PI2_proj_ARTEFAKT a
+      JOIN PI2_proj_PROCJENA p
+        ON a.artefakt_procjena_sifra = p.procjena_sifra
+      JOIN PI2_proj_KORISNIK k
+        ON a.artefakt_korisnik_sifra = k.korisnik_sifra
+        WHERE a.artefakt_odobren = 'nije odobren'
+  AND a.artefakt_odbijen = 'nije odbijen'
+      ORDER BY p.procjena_datum DESC
+    `)
+
+    res.json(rows)
+  } catch (error) {
+    console.error('Greška kod dohvaćanja procjena za admina:', error)
+    res.status(500).json({
+      message: 'Greška na serveru.',
+    })
+  }
+})
+
+app.put('/api/admin/artifacts/:artifactId/approve', verifyToken, async (req, res) => {
+  const { artifactId } = req.params
+
+  try {
+    await db.query(
+      `
+      UPDATE PI2_proj_ARTEFAKT
+      SET
+        artefakt_odobren = 'odobren',
+        artefakt_odbijen = 'nije odbijen'
+      WHERE artefakt_sifra = ?
+      `,
+      [artifactId],
+    )
+
+    res.json({
+      message: 'Artefakt je odobren.',
+    })
+  } catch (error) {
+    console.error('Greška kod odobravanja artefakta:', error)
+
+    res.status(500).json({
+      message: 'Greška na serveru.',
+    })
+  }
+})
+
+app.put('/api/admin/artifacts/:artifactId/reject', verifyToken, async (req, res) => {
+  const { artifactId } = req.params
+
+  try {
+    await db.query(
+      `
+      UPDATE PI2_proj_ARTEFAKT
+      SET
+        artefakt_odobren = 'nije odobren',
+        artefakt_odbijen = 'odbijen'
+      WHERE artefakt_sifra = ?
+      `,
+      [artifactId],
+    )
+
+    res.json({
+      message: 'Artefakt je odbijen.',
+    })
+  } catch (error) {
+    console.error('Greška kod odbijanja artefakta:', error)
+
+    res.status(500).json({
+      message: 'Greška na serveru.',
+    })
+  }
+})
+
+app.get('/api/admin/approved-artifacts', verifyToken, async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT
+        a.artefakt_sifra,
+        a.artefakt_naziv,
+        a.artefakt_stanje,
+        a.artefakt_cijena_trazena,
+        k.korisnik_ime,
+        k.korisnik_prezime
+      FROM PI2_proj_ARTEFAKT a
+      JOIN PI2_proj_KORISNIK k
+        ON a.artefakt_korisnik_sifra = k.korisnik_sifra
+      WHERE a.artefakt_odobren = 'odobren'
+      AND a.artefakt_voditelj_sifra IS NULL
+      AND a.artefakt_povucen = 'nije povucen'
+      ORDER BY a.artefakt_sifra DESC
+    `)
+
+    res.json(rows)
+  } catch (error) {
+    console.error('Greška kod dohvaćanja odobrenih artefakata:', error)
+
+    res.status(500).json({
+      message: 'Greška na serveru.',
+    })
+  }
+})
+
+app.get('/api/managers', verifyToken, async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT
+        korisnik_sifra,
+        korisnik_ime,
+        korisnik_prezime,
+        korisnik_username,
+        korisnik_email
+      FROM PI2_proj_KORISNIK
+      WHERE korisnik_voditelj = 'da'
+        AND korisnik_status = 'aktivan'
+      ORDER BY korisnik_prezime ASC, korisnik_ime ASC
+    `)
+
+    res.json(rows)
+  } catch (error) {
+    console.error('Greška kod dohvaćanja voditelja:', error)
+    res.status(500).json({ message: 'Greška na serveru.' })
+  }
+})
+
+app.put('/api/admin/artifacts/:artifactId/assign-manager', verifyToken, async (req, res) => {
+  const { artifactId } = req.params
+  const { managerId } = req.body
+
+  try {
+    await db.query(
+      `
+      UPDATE PI2_proj_ARTEFAKT
+      SET artefakt_voditelj_sifra = ?
+      WHERE artefakt_sifra = ?
+      `,
+      [managerId, artifactId],
+    )
+
+    res.json({
+      message: 'Artefakt je dodijeljen voditelju aukcije.',
+    })
+  } catch (error) {
+    console.error('Greška kod dodjele voditelja:', error)
+
+    res.status(500).json({
+      message: 'Greška na serveru.',
+    })
+  }
+})
+
+app.get('/api/manager/my-artifacts', verifyToken, async (req, res) => {
+  const userId = req.user.korisnik_sifra
+
+  try {
+    const [rows] = await db.query(
+      `
+      SELECT
+        a.artefakt_sifra,
+        a.artefakt_naziv,
+        a.artefakt_marka,
+        a.artefakt_model,
+        a.artefakt_stanje,
+        a.artefakt_cijena_trazena,
+        a.artefakt_odobren,
+        k.korisnik_ime,
+        k.korisnik_prezime,
+        k.korisnik_email,
+        p.procjena_cijena_procijenjena,
+        p.procjena_preporuka
+      FROM PI2_proj_ARTEFAKT a
+      JOIN PI2_proj_KORISNIK k
+        ON a.artefakt_korisnik_sifra = k.korisnik_sifra
+        LEFT JOIN PI2_proj_PROCJENA p
+        ON a.artefakt_procjena_sifra = p.procjena_sifra
+      WHERE a.artefakt_voditelj_sifra = ?
+        AND a.artefakt_odobren = 'odobren'
+        AND a.artefakt_prodan = 'nije prodan'
+        AND a.artefakt_povucen = 'nije povucen'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM PI2_proj_AUKCIJA auk
+    WHERE auk.aukcija_artefakt_sifra = a.artefakt_sifra
+      AND auk.aukcija_status IN ('ceka', 'prvi poziv', 'drugi poziv', 'zadnji poziv')
+  )
+      ORDER BY a.artefakt_sifra DESC
+      `,
+      [userId],
+    )
+
+    res.json(rows)
+  } catch (error) {
+    console.error('Greška kod dohvaćanja artefakata voditelja:', error)
+
+    res.status(500).json({
+      message: 'Greška na serveru.',
+    })
+  }
+})
+
+app.post('/api/manager/artifacts/:artifactId/create-auction', verifyToken, async (req, res) => {
+  const { artifactId } = req.params
+  const userId = req.user.korisnik_sifra
+
+  const {
+    aukcija_naziv,
+    aukcija_cijena_pocetna,
+    aukcija_cijena_rezervirana,
+    aukcija_pocetak,
+    aukcija_kraj,
+  } = req.body
+
+  try {
+    const [assignedArtifacts] = await db.query(
+      `
+      SELECT artefakt_sifra
+      FROM PI2_proj_ARTEFAKT
+      WHERE artefakt_sifra = ?
+        AND artefakt_voditelj_sifra = ?
+        AND artefakt_odobren = 'odobren'
+      `,
+      [artifactId, userId],
+    )
+
+    if (assignedArtifacts.length === 0) {
+      return res.status(403).json({
+        message: 'Nemate ovlasti kreirati aukciju za ovaj artefakt.',
+      })
+    }
+
+    const [result] = await db.query(
+      `
+      INSERT INTO PI2_proj_AUKCIJA (
+        aukcija_naziv,
+        aukcija_cijena_pocetna,
+        aukcija_cijena_rezervirana,
+        aukcija_pocetak,
+        aukcija_kraj,
+        aukcija_tip,
+        aukcija_status,
+        aukcija_cijena_trenutna,
+        aukcija_artefakt_sifra,
+        aukcija_korisnik_sifra
+      )
+      VALUES (?, ?, ?, ?, ?, 'EN', 'ceka', ?, ?, ?)
+      `,
+      [
+        aukcija_naziv,
+        aukcija_cijena_pocetna,
+        aukcija_cijena_rezervirana,
+        aukcija_pocetak,
+        aukcija_kraj,
+        aukcija_cijena_pocetna,
+        artifactId,
+        userId,
+      ],
+    )
+
+    res.json({
+      message: 'Aukcija je uspješno kreirana.',
+      aukcija_sifra: result.insertId,
+    })
+  } catch (error) {
+    console.error('Greška kod kreiranja aukcije:', error)
+
+    res.status(500).json({
+      message: 'Greška na serveru.',
+    })
+  }
+})
+
+app.get('/api/auctions', async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT
+        auk.aukcija_sifra,
+        auk.aukcija_naziv,
+        auk.aukcija_cijena_pocetna,
+        auk.aukcija_cijena_trenutna,
+        auk.aukcija_pocetak,
+        auk.aukcija_kraj,
+        auk.aukcija_status,
+        a.artefakt_naziv,
+        a.artefakt_stanje,
+        f.fotografija_podatak
+      FROM PI2_proj_AUKCIJA auk
+      JOIN PI2_proj_ARTEFAKT a
+        ON auk.aukcija_artefakt_sifra = a.artefakt_sifra
+      LEFT JOIN PI2_proj_ARTEFAKT_FOTOGRAFIJA f
+        ON f.fotografija_artefakt_sifra = a.artefakt_sifra
+        AND f.fotografija_redni_broj = 1
+        WHERE auk.aukcija_status IN ('ceka', 'prvi poziv', 'drugi poziv', 'zadnji poziv')
+      ORDER BY auk.aukcija_kraj ASC
+    `)
+
+    res.json(rows)
+  } catch (error) {
+    console.error('Greška kod dohvaćanja aukcija:', error)
+
+    res.status(500).json({
+      message: 'Greška na serveru.',
+    })
+  }
+})
+
+app.get('/api/auctions/:id', async (req, res) => {
+  const { id } = req.params
+
+  try {
+    const [rows] = await db.query(
+      `
+      SELECT
+        auk.aukcija_sifra,
+        auk.aukcija_naziv,
+        auk.aukcija_cijena_pocetna,
+        auk.aukcija_cijena_trenutna,
+        auk.aukcija_cijena_rezervirana,
+        auk.aukcija_pocetak,
+        auk.aukcija_kraj,
+        auk.aukcija_status,
+        a.artefakt_sifra,
+        a.artefakt_naziv,
+        a.artefakt_marka,
+        a.artefakt_model,
+        a.artefakt_datum_proizvodnje,
+        a.artefakt_stanje,
+        a.artefakt_opis,
+        k.korisnik_username,
+        p.procjena_cijena_procijenjena
+      FROM PI2_proj_AUKCIJA auk
+      JOIN PI2_proj_ARTEFAKT a
+        ON auk.aukcija_artefakt_sifra = a.artefakt_sifra
+      JOIN PI2_proj_KORISNIK k
+        ON a.artefakt_korisnik_sifra = k.korisnik_sifra
+      LEFT JOIN PI2_proj_PROCJENA p
+        ON a.artefakt_procjena_sifra = p.procjena_sifra
+      WHERE auk.aukcija_sifra = ?
+      `,
+      [id],
+    )
+
+    if (rows.length === 0) {
+      return res.status(404).json({
+        message: 'Aukcija nije pronađena.',
+      })
+    }
+
+    const [photos] = await db.query(
+      `
+      SELECT
+        fotografija_podatak,
+        fotografija_redni_broj
+      FROM PI2_proj_ARTEFAKT_FOTOGRAFIJA
+      WHERE fotografija_artefakt_sifra = ?
+      ORDER BY fotografija_redni_broj ASC
+      `,
+      [rows[0].artefakt_sifra],
+    )
+
+    res.json({
+      ...rows[0],
+      fotografije: photos,
+    })
+  } catch (error) {
+    console.error('Greška kod dohvaćanja detalja aukcije:', error)
+
+    res.status(500).json({
+      message: 'Greška na serveru.',
+    })
   }
 })
 

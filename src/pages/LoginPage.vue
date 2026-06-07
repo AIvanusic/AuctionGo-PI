@@ -78,6 +78,7 @@
 import { ref } from 'vue'
 import axios from 'axios'
 import { Notify } from 'quasar'
+import { redirectByRole } from '../utils/redirectByRole'
 
 const login = ref('')
 const password = ref('')
@@ -102,17 +103,7 @@ async function loginUser() {
     })
 
     setTimeout(() => {
-      const user = response.data.user
-
-      if (response.data.user.korisnik_verificiran === 'ne') {
-        window.location.href = '/complete-profile'
-      } else if (user.korisnik_admin === 'da' || user.korisnik_superadmin === 'da') {
-        window.location.href = '/admin-dashboard'
-      } else if (user.korisnik_procjenitelj === 'da') {
-        window.location.href = '/appraiser-dashboard'
-      } else {
-        window.location.href = '/'
-      }
+      redirectByRole(response.data.user)
     }, 1000)
   } catch (error) {
     console.error(error)

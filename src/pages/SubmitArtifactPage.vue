@@ -65,6 +65,7 @@
           v-model="trazenaCijena"
           outlined
           label="Tražena cijena (€)"
+          hint="Tražena cijena nije obavezna. Ona služi kao orijentacija pri  određivanju uvjeta aukcije (npr. 250,00 €). Konačnu početnu i rezerviranu cijenu određuje AuctionGO! nakon procjene."
           type="number"
           class="q-mb-md"
         />
