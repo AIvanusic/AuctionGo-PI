@@ -9,6 +9,9 @@ const routes = [
       { path: 'auctiondetail', component: () => import('pages/AuctionDetailPage.vue') },
       { path: 'complete-profile', component: () => import('pages/CompleteProfilePage.vue') },
       { path: 'submit-artifact', component: () => import('pages/SubmitArtifactPage.vue') },
+      { path: 'user-profile', component: () => import('pages/UserProfilePage.vue') },
+      { path: '/admin-dashboard', component: () => import('pages/AdminPage.vue') },
+      { path: '/appraiser-dashboard', component: () => import('pages/AppraiserPage.vue') },
     ],
   },
 

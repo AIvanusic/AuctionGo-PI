@@ -102,8 +102,14 @@ async function loginUser() {
     })
 
     setTimeout(() => {
+      const user = response.data.user
+
       if (response.data.user.korisnik_verificiran === 'ne') {
         window.location.href = '/complete-profile'
+      } else if (user.korisnik_admin === 'da' || user.korisnik_superadmin === 'da') {
+        window.location.href = '/admin-dashboard'
+      } else if (user.korisnik_procjenitelj === 'da') {
+        window.location.href = '/appraiser-dashboard'
       } else {
         window.location.href = '/'
       }

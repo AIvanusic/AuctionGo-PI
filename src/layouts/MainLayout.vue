@@ -41,9 +41,7 @@
         </template>
 
         <template v-else>
-          <div class="text-white q-mr-md">
-            {{ user.korisnik_username }}
-          </div>
+          <q-btn flat no-caps icon="person" :label="user.korisnik_username" to="/user-profile" />
 
           <q-btn outline color="primary" label="Odjava" no-caps rounded @click="logout" />
         </template>
@@ -63,6 +61,8 @@ const user = ref(JSON.parse(localStorage.getItem('auctiongo_user')))
 
 function logout() {
   localStorage.removeItem('auctiongo_user')
-  location.reload()
+  localStorage.removeItem('auctiongo_token')
+
+  window.location.href = '/'
 }
 </script>
