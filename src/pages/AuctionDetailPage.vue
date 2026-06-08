@@ -126,7 +126,7 @@
             <q-card flat bordered class="q-pa-md">
               <div class="text-body2 text-grey-8">Završava za</div>
               <div class="text-h6 text-dark">
-                {{ formatDate(auction?.aukcija_kraj) }}
+                {{ timeLeft }}
               </div>
             </q-card>
           </div>
@@ -134,18 +134,33 @@
 
         <div class="row q-col-gutter-md items-end">
           <div class="col-12 col-md-4">
-            <q-input outlined label="Vaša ponuda (€)" model-value="80" />
+            <q-input
+              v-model="bidAmount"
+              outlined
+              label="Vaša ponuda (€)"
+              type="text"
+              :disable="isAuctionEnded"
+            />
           </div>
 
+          <div v-if="isAuctionEnded" class="text-grey-8 q-mb-md">Aukcija je završena.</div>
           <div class="col-auto">
+            <div v-if="isLeadingBidder" class="text-positive q-mb-md">
+              Trenutno imate vodeću ponudu.
+            </div>
+            <div v-else-if="bids.length > 0" class="text-negative q-mb-md">
+              Niste vodeći ponuditelj.
+            </div>
             <q-btn
               color="primary"
               class="q-mb-sm"
               text-color="dark"
-              label="Ponudi"
+              label="Ponudite"
               no-caps
               rounded
               unelevated
+              @click="placeBid"
+              :disable="isAuctionEnded"
             />
           </div>
         </div>
@@ -157,14 +172,27 @@
       >
         Povijest ponuda
       </div>
+      <q-card class="q-pa-md">
+        <q-table
+          :rows="bids"
+          :columns="bidColumns"
+          row-key="ponuda_sifra"
+          flat
+          bordered
+          :pagination="{ rowsPerPage: 10 }"
+        />
+      </q-card>
     </div>
+    let countdownInterval
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import axios from 'axios'
+import { Notify } from 'quasar'
+import { io } from 'socket.io-client'
 
 const route = useRoute()
 
@@ -184,11 +212,16 @@ function formatPrice(value) {
 }
 
 function formatDate(value) {
-  if (!value) {
-    return '-'
-  }
+  const date = new Date(value)
 
-  return new Date(value).toLocaleString('hr-HR')
+  const day = String(date.getDate()).padStart(2, '0')
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const year = date.getFullYear()
+
+  const hour = String(date.getHours()).padStart(2, '0')
+  const minute = String(date.getMinutes()).padStart(2, '0')
+
+  return `${day}.${month}.${year}. ${hour}:${minute}`
 }
 
 const selectedPhoto = ref('')
@@ -198,10 +231,10 @@ async function fetchAuction() {
     const response = await axios.get(`http://localhost:3000/api/auctions/${route.params.id}`)
 
     auction.value = response.data
+    updateCountdown()
     if (auction.value.fotografije?.length > 0) {
       selectedPhoto.value = auction.value.fotografije[0].fotografija_podatak
     }
-    console.log('Detalji aukcije:', auction.value)
   } catch (error) {
     console.error('Greška kod dohvaćanja detalja aukcije:', error)
   }
@@ -211,7 +244,158 @@ function selectPhoto(photo) {
   selectedPhoto.value = photo.fotografija_podatak
 }
 
+const bidAmount = ref('')
+
+async function placeBid() {
+  const bidValue = Number(String(bidAmount.value).replace(',', '.'))
+
+  if (!bidAmount.value || Number.isNaN(bidValue)) {
+    Notify.create({
+      type: 'negative',
+      message: 'Unesite ispravan iznos ponude.',
+      position: 'center',
+    })
+    return
+  }
+
+  try {
+    const token = localStorage.getItem('auctiongo_token')
+
+    const response = await axios.post(
+      `http://localhost:3000/api/auctions/${route.params.id}/bids`,
+      {
+        ponuda_cijena_ponudjena: bidValue,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    )
+
+    Notify.create({
+      type: 'positive',
+      message: response.data.message,
+      position: 'center',
+    })
+
+    await fetchAuction()
+    await fetchBids()
+
+    bidAmount.value = ''
+  } catch (error) {
+    console.error('Greška kod ponude:', error)
+
+    Notify.create({
+      type: 'negative',
+      message: error.response?.data?.message || 'Ponuda nije spremljena.',
+      position: 'center',
+    })
+  }
+}
+
+const bids = ref([])
+
+async function fetchBids() {
+  try {
+    const response = await axios.get(`http://localhost:3000/api/auctions/${route.params.id}/bids`)
+
+    bids.value = response.data
+  } catch (error) {
+    console.error('Greška kod dohvaćanja ponuda:', error)
+  }
+}
+
+const bidColumns = [
+  {
+    name: 'vrijeme',
+    label: 'Vrijeme',
+    field: 'ponuda_vrijeme',
+    align: 'left',
+    sortable: true,
+    format: (val) => formatDate(val),
+  },
+  {
+    name: 'iznos',
+    label: 'Ponuda (€)',
+    field: 'ponuda_cijena_ponudjena',
+    align: 'right',
+    sortable: true,
+    format: (val) =>
+      Number(val).toLocaleString('hr-HR', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }),
+  },
+]
+
+const currentUser = JSON.parse(localStorage.getItem('auctiongo_user'))
+
+const isLeadingBidder = computed(() => {
+  if (!currentUser || bids.value.length === 0) {
+    return false
+  }
+
+  return bids.value[0].ponuda_korisnik_sifra === currentUser.korisnik_sifra
+})
+
+const socket = io('http://localhost:3000')
+
+const timeLeft = ref('')
+let countdownInterval
+const auctionEnded = ref(false)
+
+function updateCountdown() {
+  if (!auction.value?.aukcija_kraj) {
+    timeLeft.value = '-'
+    return
+  }
+
+  const endDate = new Date(auction.value.aukcija_kraj)
+  const now = new Date()
+
+  const diff = endDate - now
+
+  if (diff <= 0) {
+    timeLeft.value = 'Aukcija je završena'
+    auctionEnded.value = true
+    return
+  }
+
+  auctionEnded.value = false
+
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24))
+
+  const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
+
+  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
+
+  const seconds = Math.floor((diff % (1000 * 60)) / 1000)
+
+  timeLeft.value = `${days}d ${hours}h ${minutes}m ${seconds}s`
+}
+
+const isAuctionEnded = computed(() => auctionEnded.value)
+
 onMounted(() => {
   fetchAuction()
+  fetchBids()
+
+  countdownInterval = setInterval(() => {
+    updateCountdown()
+  }, 1000)
+  socket.on('connect', () => {
+    console.log('Socket spojen na frontend:', socket.id)
+  })
+  socket.on('bid-updated', async (data) => {
+    if (String(data.auctionId) === String(route.params.id)) {
+      await fetchAuction()
+      await fetchBids()
+    }
+  })
+})
+
+onUnmounted(() => {
+  clearInterval(countdownInterval)
 })
 </script>

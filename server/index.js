@@ -4,6 +4,10 @@ import mysql from 'mysql2/promise'
 import dotenv from 'dotenv'
 import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken'
+import { createServer } from 'http'
+import { Server } from 'socket.io'
+
+const PORT = process.env.PORT || 3000
 
 dotenv.config()
 console.log('DB_HOST:', process.env.DB_HOST)
@@ -11,6 +15,21 @@ console.log('DB_USER:', process.env.DB_USER)
 console.log('DB_NAME:', process.env.DB_NAME)
 
 const app = express()
+const httpServer = createServer(app)
+
+const io = new Server(httpServer, {
+  cors: {
+    origin: 'http://localhost:9000',
+  },
+})
+
+io.on('connection', (socket) => {
+  console.log('Socket spojen:', socket.id)
+
+  socket.on('disconnect', () => {
+    console.log('Socket odspojen:', socket.id)
+  })
+})
 
 app.use(cors())
 app.use(express.json({ limit: '10mb' }))
@@ -46,8 +65,9 @@ const db = mysql.createPool({
   database: process.env.DB_NAME,
   port: process.env.DB_PORT,
   waitForConnections: true,
-  connectionLimit: 10,
+  connectionLimit: 5,
   queueLimit: 0,
+  connectTimeout: 20000,
 })
 
 console.log('Pool veza s bazom podataka je spremna')
@@ -240,15 +260,23 @@ app.post('/complete-profile', verifyToken, async (req, res) => {
 })
 
 app.get('/categories', async (req, res) => {
-  const [categories] = await db.query(`
-    SELECT
-      kategorija_sifra,
-      kategorija_naziv
-    FROM PI2_proj_KATEGORIJA
-    ORDER BY kategorija_naziv
-  `)
+  try {
+    const [categories] = await db.query(`
+      SELECT
+        kategorija_sifra,
+        kategorija_naziv
+      FROM PI2_proj_KATEGORIJA
+      ORDER BY kategorija_naziv
+    `)
 
-  res.json(categories)
+    res.json(categories)
+  } catch (error) {
+    console.error('Greška kod dohvaćanja kategorija:', error)
+
+    res.status(500).json({
+      message: 'Greška kod dohvaćanja kategorija.',
+    })
+  }
 })
 
 app.post('/artifact', verifyToken, async (req, res) => {
@@ -972,6 +1000,150 @@ app.get('/api/auctions/:id', async (req, res) => {
   }
 })
 
-app.listen(3000, () => {
-  console.log('Server pokrenut na portu 3000.')
+const LAST_SECOND_WINDOW_MS = 60 * 1000
+const AUCTION_EXTENSION_SECONDS = 120
+
+app.post('/api/auctions/:id/bids', verifyToken, async (req, res) => {
+  const { id } = req.params
+  const userId = req.user.korisnik_sifra
+  const { ponuda_cijena_ponudjena } = req.body
+
+  try {
+    const [auctions] = await db.query(
+      `
+      SELECT
+        aukcija_sifra,
+        aukcija_cijena_trenutna,
+        aukcija_status,
+        aukcija_kraj
+      FROM PI2_proj_AUKCIJA
+      WHERE aukcija_sifra = ?
+      `,
+      [id],
+    )
+
+    if (auctions.length === 0) {
+      return res.status(404).json({
+        message: 'Aukcija nije pronađena.',
+      })
+    }
+
+    const auction = auctions[0]
+
+    if (new Date(auction.aukcija_kraj) <= new Date()) {
+      return res.status(400).json({
+        message: 'Aukcija je završena.',
+      })
+    }
+    if (!['ceka', 'prvi poziv', 'drugi poziv', 'zadnji poziv'].includes(auction.aukcija_status)) {
+      return res.status(400).json({
+        message: 'Aukcija nije otvorena za ponude.',
+      })
+    }
+
+    const currentPrice = Number(auction.aukcija_cijena_trenutna)
+    const bidPrice = Number(ponuda_cijena_ponudjena)
+
+    if (!bidPrice || bidPrice <= currentPrice) {
+      return res.status(400).json({
+        message: 'Ponuda mora biti veća od trenutne cijene.',
+      })
+    }
+
+    const [lastBids] = await db.query(
+      `
+      SELECT COUNT(*) AS broj_ponuda
+      FROM PI2_proj_PONUDA
+      WHERE ponuda_aukcija_sifra = ?
+      `,
+      [id],
+    )
+
+    const nextBidNumber = lastBids[0].broj_ponuda + 1
+
+    await db.query(
+      `
+      INSERT INTO PI2_proj_PONUDA (
+        ponuda_rednibroj,
+        ponuda_vrijeme,
+        ponuda_cijena_ponudjena,
+        ponuda_korisnik_sifra,
+        ponuda_aukcija_sifra
+      )
+      VALUES (?, NOW(), ?, ?, ?)
+      `,
+      [String(nextBidNumber), bidPrice, userId, id],
+    )
+
+    await db.query(
+      `
+      UPDATE PI2_proj_AUKCIJA
+      SET aukcija_cijena_trenutna = ?
+      WHERE aukcija_sifra = ?
+      `,
+      [bidPrice, id],
+    )
+
+    const remainingTime = new Date(auction.aukcija_kraj) - new Date()
+
+    if (remainingTime <= LAST_SECOND_WINDOW_MS) {
+      console.log(`Aukcija ${id} produžena za ${AUCTION_EXTENSION_SECONDS} sekundi.`)
+      await db.query(
+        `
+    UPDATE PI2_proj_AUKCIJA
+    SET aukcija_kraj = DATE_ADD(aukcija_kraj, INTERVAL ? SECOND)
+    WHERE aukcija_sifra = ?
+    `,
+        [AUCTION_EXTENSION_SECONDS, id],
+      )
+    }
+
+    io.emit('bid-updated', {
+      auctionId: id,
+      newPrice: bidPrice,
+    })
+
+    res.json({
+      message: 'Ponuda je uspješno spremljena.',
+      nova_cijena: bidPrice,
+    })
+  } catch (error) {
+    console.error('Greška kod spremanja ponude:', error)
+
+    res.status(500).json({
+      message: 'Greška na serveru.',
+    })
+  }
+})
+
+app.get('/api/auctions/:id/bids', async (req, res) => {
+  const { id } = req.params
+
+  try {
+    const [bids] = await db.query(
+      `
+      SELECT
+        ponuda_sifra,
+        ponuda_vrijeme,
+        ponuda_cijena_ponudjena,
+        ponuda_korisnik_sifra
+      FROM PI2_proj_PONUDA
+      WHERE ponuda_aukcija_sifra = ?
+      ORDER BY ponuda_vrijeme DESC
+      `,
+      [id],
+    )
+
+    res.json(bids)
+  } catch (error) {
+    console.error('Greška kod dohvaćanja ponuda:', error)
+
+    res.status(500).json({
+      message: 'Greška kod dohvaćanja ponuda.',
+    })
+  }
+})
+
+httpServer.listen(PORT, () => {
+  console.log(`Server pokrenut na portu ${PORT}.`)
 })

@@ -17,17 +17,28 @@
         </template>
       </div>
 
-      <q-btn
-        color="primary"
-        text-color="dark"
-        label="Prijavite artefakt"
-        no-caps
-        unelevated
-        rounded
-        to="/submit-artifact"
-        class="q-mt-lg"
-      />
-
+      <div class="row q-gutter-md q-mb-lg">
+        <q-btn
+          color="primary"
+          text-color="dark"
+          label="Prijavite artefakt"
+          no-caps
+          unelevated
+          rounded
+          to="/submit-artifact"
+          class="q-mt-lg"
+        />
+        <q-btn
+          color="primary"
+          text-color="dark"
+          label="Pregled aukcija"
+          no-caps
+          rounded
+          unelevated
+          to="/auctions"
+          class="q-mt-lg"
+        />
+      </div>
       <div class="q-mt-xl">
         <div class="text-h5 text-dark q-mb-md">Moji artefakti</div>
 
