@@ -51,7 +51,7 @@
     <q-dialog v-model="appraisalDialog">
       <q-card style="min-width: 700px; max-width: 900px">
         <q-card-section>
-          <div class="text-h6">Procjena artefakta</div>
+          <div class="text-h6">Procjena artefakta {{ selectedArtifact?.artefakt_naziv }}</div>
         </q-card-section>
 
         <q-card-section>

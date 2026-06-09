@@ -1250,6 +1250,22 @@ async function updateAuctionStatus(auctionId) {
   return newStatus
 }
 
+async function createNotification(userId, title, text) {
+  await db.query(
+    `
+    INSERT INTO PI2_proj_OBAVIJEST (
+      obavijest_vrijeme,
+      obavijest_naslov,
+      obavijest_tekst,
+      obavijest_procitana,
+      obavijest_korisnik_sifra
+    )
+    VALUES (NOW(), ?, ?, 'ne', ?)
+    `,
+    [title, text, userId],
+  )
+}
+
 async function closeAuctionIfEnded(auctionId) {
   const [auctions] = await db.query(
     `
@@ -1257,8 +1273,11 @@ async function closeAuctionIfEnded(auctionId) {
       aukcija_sifra,
       aukcija_kraj,
       aukcija_status,
-      aukcija_statusend
-    FROM PI2_proj_AUKCIJA
+      aukcija_statusend,
+      a.artefakt_korisnik_sifra
+    FROM PI2_proj_AUKCIJA auk
+    JOIN PI2_proj_ARTEFAKT a
+  ON auk.aukcija_artefakt_sifra = a.artefakt_sifra
     WHERE aukcija_sifra = ?
     `,
     [auctionId],
@@ -1309,6 +1328,21 @@ async function closeAuctionIfEnded(auctionId) {
 
   const winningBid = bids[0]
 
+  const formattedPrice = Number(winningBid.ponuda_cijena_ponudjena).toLocaleString('hr-HR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
+
+  const [otherBidders] = await db.query(
+    `
+  SELECT DISTINCT
+    ponuda_korisnik_sifra
+  FROM PI2_proj_PONUDA
+  WHERE ponuda_aukcija_sifra = ?
+    AND ponuda_korisnik_sifra <> ?
+  `,
+    [auctionId, winningBid.ponuda_korisnik_sifra],
+  )
   await db.query(
     `
     UPDATE PI2_proj_AUKCIJA
@@ -1321,8 +1355,60 @@ async function closeAuctionIfEnded(auctionId) {
     [winningBid.ponuda_cijena_ponudjena, auctionId],
   )
 
+  await createNotification(
+    winningBid.ponuda_korisnik_sifra,
+    'Pobijedili ste na aukciji',
+    `Pobijedili ste na aukciji s ponudom od ${formattedPrice} €.`,
+  )
+
+  console.log('Prodavatelj ID:', auction.artefakt_korisnik_sifra)
+
+  await createNotification(
+    auction.artefakt_korisnik_sifra,
+    'Artefakt je prodan',
+    `Vaš artefakt prodan je za ${formattedPrice} €.`,
+  )
+
+  console.log('Šaljem obavijest prodavatelju')
+
+  for (const bidder of otherBidders) {
+    await createNotification(
+      bidder.ponuda_korisnik_sifra,
+      'Aukcija je završena',
+      'Aukcija je završena. Niste imali najvišu ponudu.',
+    )
+  }
   return 'uspjesno zavrsena'
 }
+
+app.get('/api/user/notifications', verifyToken, async (req, res) => {
+  const userId = req.user.korisnik_sifra
+
+  try {
+    const [notifications] = await db.query(
+      `
+      SELECT
+        obavijest_sifra,
+        obavijest_vrijeme,
+        obavijest_naslov,
+        obavijest_tekst,
+        obavijest_procitana
+      FROM PI2_proj_OBAVIJEST
+      WHERE obavijest_korisnik_sifra = ?
+      ORDER BY obavijest_vrijeme DESC
+      `,
+      [userId],
+    )
+
+    res.json(notifications)
+  } catch (error) {
+    console.error('Greška kod dohvaćanja obavijesti:', error)
+
+    res.status(500).json({
+      message: 'Greška kod dohvaćanja obavijesti.',
+    })
+  }
+})
 
 httpServer.listen(PORT, () => {
   console.log(`Server pokrenut na portu ${PORT}.`)

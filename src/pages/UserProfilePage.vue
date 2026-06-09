@@ -71,6 +71,18 @@
       </div>
 
       <div class="q-mt-xl">
+        <div class="text-h5 text-dark q-mb-md">Moje obavijesti</div>
+
+        <q-table
+          :rows="notifications"
+          :columns="notificationColumns"
+          row-key="obavijest_sifra"
+          flat
+          bordered
+          :pagination="{ rowsPerPage: 5 }"
+        />
+      </div>
+      <div class="q-mt-xl">
         <div class="text-h5 text-dark q-mb-md">Aukcije na kojima sudjelujem</div>
 
         <q-table
@@ -224,6 +236,19 @@ function formatPrice(value) {
   )
 }
 
+function formatDateTime(value) {
+  const date = new Date(value)
+
+  const day = String(date.getDate()).padStart(2, '0')
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const year = date.getFullYear()
+
+  const hour = String(date.getHours()).padStart(2, '0')
+  const minute = String(date.getMinutes()).padStart(2, '0')
+
+  return `${day}.${month}.${year}. ${hour}:${minute}`
+}
+
 function formatTimeLeft(value) {
   if (!value) {
     return '-'
@@ -274,6 +299,49 @@ function openAuction(auction) {
   router.push(`/auctiondetail/${auction.aukcija_sifra}`)
 }
 
+const notifications = ref([])
+async function fetchNotifications() {
+  const token = localStorage.getItem('auctiongo_token')
+
+  try {
+    const response = await axios.get('http://localhost:3000/api/user/notifications', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+
+    notifications.value = response.data
+
+    console.log('Moje obavijesti:', notifications.value)
+  } catch (error) {
+    console.error('Greška kod dohvaćanja obavijesti:', error)
+  }
+}
+
+const notificationColumns = [
+  {
+    name: 'vrijeme',
+    label: 'Vrijeme',
+    field: 'obavijest_vrijeme',
+    format: (val) => formatDateTime(val),
+    align: 'left',
+    sortable: true,
+  },
+  {
+    name: 'naslov',
+    label: 'Naslov',
+    field: 'obavijest_naslov',
+    align: 'left',
+    sortable: true,
+  },
+  {
+    name: 'tekst',
+    label: 'Obavijest',
+    field: 'obavijest_tekst',
+    align: 'left',
+  },
+]
+
 onMounted(async () => {
   const token = localStorage.getItem('auctiongo_token')
 
@@ -287,6 +355,7 @@ onMounted(async () => {
 
   console.log(response.data)
 
+  await fetchNotifications()
   await fetchMyAuctions()
 })
 socket.on('bid-updated', async () => {
