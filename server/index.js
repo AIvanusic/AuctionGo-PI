@@ -937,9 +937,14 @@ app.get('/api/auctions/:id', async (req, res) => {
   const { id } = req.params
 
   try {
+    await updateAuctionStatus(id)
+    await closeAuctionIfEnded(id)
+
     const [rows] = await db.query(
       `
       SELECT
+        kat.kategorija_sifra,
+        kat.kategorija_naziv,
         auk.aukcija_sifra,
         auk.aukcija_naziv,
         auk.aukcija_cijena_pocetna,
@@ -960,10 +965,13 @@ app.get('/api/auctions/:id', async (req, res) => {
       FROM PI2_proj_AUKCIJA auk
       JOIN PI2_proj_ARTEFAKT a
         ON auk.aukcija_artefakt_sifra = a.artefakt_sifra
-      JOIN PI2_proj_KORISNIK k
+              LEFT JOIN PI2_proj_KATEGORIJA kat
+  ON a.artefakt_kategorija_sifra = kat.kategorija_sifra
+  JOIN PI2_proj_KORISNIK k
         ON a.artefakt_korisnik_sifra = k.korisnik_sifra
       LEFT JOIN PI2_proj_PROCJENA p
         ON a.artefakt_procjena_sifra = p.procjena_sifra
+
       WHERE auk.aukcija_sifra = ?
       `,
       [id],
@@ -1009,6 +1017,8 @@ app.post('/api/auctions/:id/bids', verifyToken, async (req, res) => {
   const { ponuda_cijena_ponudjena } = req.body
 
   try {
+    await updateAuctionStatus(id)
+
     const [auctions] = await db.query(
       `
       SELECT
@@ -1143,6 +1153,176 @@ app.get('/api/auctions/:id/bids', async (req, res) => {
     })
   }
 })
+
+app.get('/api/user/my-auctions', verifyToken, async (req, res) => {
+  const userId = req.user.korisnik_sifra
+
+  try {
+    const [rows] = await db.query(
+      `
+      SELECT
+        auk.aukcija_sifra,
+        auk.aukcija_naziv,
+        auk.aukcija_cijena_trenutna,
+        auk.aukcija_kraj,
+        auk.aukcija_status,
+        auk.aukcija_statusend,
+        auk.aukcija_cijena_konacna,
+        MAX(p.ponuda_cijena_ponudjena) AS moja_najvisa_ponuda
+      FROM PI2_proj_PONUDA p
+      JOIN PI2_proj_AUKCIJA auk
+        ON p.ponuda_aukcija_sifra = auk.aukcija_sifra
+      WHERE p.ponuda_korisnik_sifra = ?
+      GROUP BY
+        auk.aukcija_sifra,
+        auk.aukcija_naziv,
+        auk.aukcija_cijena_trenutna,
+        auk.aukcija_kraj,
+        auk.aukcija_status,
+        auk.aukcija_statusend,
+        auk.aukcija_cijena_konacna
+      ORDER BY auk.aukcija_kraj ASC
+      `,
+      [userId],
+    )
+
+    res.json(rows)
+  } catch (error) {
+    console.error('Greška kod dohvaćanja korisnikovih aukcija:', error)
+
+    res.status(500).json({
+      message: 'Greška kod dohvaćanja korisnikovih aukcija.',
+    })
+  }
+})
+
+async function updateAuctionStatus(auctionId) {
+  const [rows] = await db.query(
+    `
+    SELECT
+      aukcija_sifra,
+      aukcija_pocetak,
+      aukcija_kraj,
+      aukcija_status
+    FROM PI2_proj_AUKCIJA
+    WHERE aukcija_sifra = ?
+    `,
+    [auctionId],
+  )
+
+  if (rows.length === 0) {
+    return null
+  }
+
+  const auction = rows[0]
+
+  const now = new Date()
+  const start = new Date(auction.aukcija_pocetak)
+  const end = new Date(auction.aukcija_kraj)
+
+  const remainingMs = end - now
+
+  let newStatus = auction.aukcija_status
+
+  if (now < start) {
+    newStatus = 'ceka'
+  } else if (now >= end) {
+    newStatus = 'zavrsena'
+  } else if (remainingMs <= 60 * 1000) {
+    newStatus = 'zadnji poziv'
+  } else if (remainingMs <= 10 * 60 * 1000) {
+    newStatus = 'drugi poziv'
+  } else {
+    newStatus = 'prvi poziv'
+  }
+
+  if (newStatus !== auction.aukcija_status) {
+    await db.query(
+      `
+      UPDATE PI2_proj_AUKCIJA
+      SET aukcija_status = ?
+      WHERE aukcija_sifra = ?
+      `,
+      [newStatus, auctionId],
+    )
+  }
+
+  return newStatus
+}
+
+async function closeAuctionIfEnded(auctionId) {
+  const [auctions] = await db.query(
+    `
+    SELECT
+      aukcija_sifra,
+      aukcija_kraj,
+      aukcija_status,
+      aukcija_statusend
+    FROM PI2_proj_AUKCIJA
+    WHERE aukcija_sifra = ?
+    `,
+    [auctionId],
+  )
+
+  if (auctions.length === 0) {
+    return null
+  }
+
+  const auction = auctions[0]
+
+  if (new Date(auction.aukcija_kraj) > new Date()) {
+    return null
+  }
+
+  if (auction.aukcija_status === 'zavrsena' && auction.aukcija_statusend) {
+    return null
+  }
+
+  const [bids] = await db.query(
+    `
+    SELECT
+      ponuda_sifra,
+      ponuda_cijena_ponudjena,
+      ponuda_korisnik_sifra
+    FROM PI2_proj_PONUDA
+    WHERE ponuda_aukcija_sifra = ?
+    ORDER BY ponuda_cijena_ponudjena DESC, ponuda_vrijeme ASC
+    LIMIT 1
+    `,
+    [auctionId],
+  )
+
+  if (bids.length === 0) {
+    await db.query(
+      `
+      UPDATE PI2_proj_AUKCIJA
+      SET
+        aukcija_status = 'zavrsena',
+        aukcija_statusend = 'bez ponuda'
+      WHERE aukcija_sifra = ?
+      `,
+      [auctionId],
+    )
+
+    return 'bez ponuda'
+  }
+
+  const winningBid = bids[0]
+
+  await db.query(
+    `
+    UPDATE PI2_proj_AUKCIJA
+    SET
+      aukcija_status = 'zavrsena',
+      aukcija_statusend = 'uspjesno zavrsena',
+      aukcija_cijena_konacna = ?
+    WHERE aukcija_sifra = ?
+    `,
+    [winningBid.ponuda_cijena_ponudjena, auctionId],
+  )
+
+  return 'uspjesno zavrsena'
+}
 
 httpServer.listen(PORT, () => {
   console.log(`Server pokrenut na portu ${PORT}.`)

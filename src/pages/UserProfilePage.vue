@@ -55,7 +55,44 @@
           bordered
           :pagination="{ rowsPerPage: 10 }"
           :rows-per-page-options="[5, 10, 20, 50, 0]"
-        />
+        >
+          <template v-slot:body-cell-akcije="props">
+            <q-td :props="props">
+              <q-btn
+                color="primary"
+                label="Detalji"
+                no-caps
+                size="sm"
+                @click="openAuction(props.row)"
+              />
+            </q-td>
+          </template>
+        </q-table>
+      </div>
+
+      <div class="q-mt-xl">
+        <div class="text-h5 text-dark q-mb-md">Aukcije na kojima sudjelujem</div>
+
+        <q-table
+          :rows="myAuctions"
+          :columns="myAuctionColumns"
+          row-key="aukcija_sifra"
+          flat
+          bordered
+          :pagination="{ rowsPerPage: 5 }"
+        >
+          <template v-slot:body-cell-akcije="props">
+            <q-td :props="props">
+              <q-btn
+                color="primary"
+                label="Detalji"
+                no-caps
+                size="sm"
+                @click="openAuction(props.row)"
+              />
+            </q-td>
+          </template>
+        </q-table>
       </div>
     </div>
     <div v-else class="q-mt-lg">Za pregled profila potrebno se prijaviti.</div>
@@ -65,6 +102,9 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import axios from 'axios'
+import { io } from 'socket.io-client'
+import { onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 
 const user = JSON.parse(localStorage.getItem('auctiongo_user'))
 
@@ -104,6 +144,136 @@ const artifactColumns = [
   },
 ]
 
+const myAuctions = ref([])
+
+async function fetchMyAuctions() {
+  const token = localStorage.getItem('auctiongo_token')
+
+  try {
+    const response = await axios.get('http://localhost:3000/api/user/my-auctions', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+
+    myAuctions.value = response.data
+
+    console.log('Moje aukcije:', myAuctions.value)
+  } catch (error) {
+    console.error('Greška kod dohvaćanja mojih aukcija:', error)
+  }
+}
+
+const myAuctionColumns = [
+  {
+    name: 'aukcija_naziv',
+    label: 'Aukcija',
+    field: 'aukcija_naziv',
+    align: 'left',
+    sortable: true,
+  },
+  {
+    name: 'moja_najvisa_ponuda',
+    label: 'Moja ponuda',
+    field: 'moja_najvisa_ponuda',
+    format: (val) => formatPrice(val),
+    align: 'right',
+    sortable: true,
+  },
+  {
+    name: 'aukcija_cijena_trenutna',
+    label: 'Trenutna cijena',
+    field: 'aukcija_cijena_trenutna',
+    format: (val) => formatPrice(val),
+    align: 'right',
+    sortable: true,
+  },
+  {
+    name: 'aukcija_kraj',
+    label: 'Završava za',
+    field: 'aukcija_kraj',
+    format: (val) => formatTimeLeft(val),
+    align: 'left',
+    sortable: true,
+  },
+  {
+    name: 'status',
+    label: 'Status',
+    field: (row) => getAuctionStatus(row),
+    align: 'center',
+    sortable: true,
+  },
+  {
+    name: 'akcije',
+    label: 'Detalji',
+    field: 'akcije',
+    align: 'center',
+  },
+]
+
+function formatPrice(value) {
+  if (value === null || value === undefined) {
+    return '-'
+  }
+
+  return (
+    Number(value).toLocaleString('hr-HR', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }) + ' €'
+  )
+}
+
+function formatTimeLeft(value) {
+  if (!value) {
+    return '-'
+  }
+
+  const endDate = new Date(value)
+  const now = new Date()
+  const diff = endDate - now
+
+  if (diff <= 0) {
+    return 'Završena'
+  }
+
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24))
+  const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
+  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
+
+  return `${days}d ${hours}s ${minutes}m`
+}
+
+function getAuctionStatus(row) {
+  const isEnded = new Date(row.aukcija_kraj) <= new Date()
+
+  if (isEnded) {
+    if (row.aukcija_statusend === 'bez ponuda') {
+      return 'Bez ponuda'
+    }
+
+    if (Number(row.moja_najvisa_ponuda) === Number(row.aukcija_cijena_konacna)) {
+      return 'Pobijedili ste'
+    }
+
+    return 'Aukcija završena'
+  }
+
+  if (Number(row.moja_najvisa_ponuda) === Number(row.aukcija_cijena_trenutna)) {
+    return 'Vodite'
+  }
+
+  return 'Nadmašeni ste'
+}
+
+const socket = io('http://localhost:3000')
+
+const router = useRouter()
+
+function openAuction(auction) {
+  router.push(`/auctiondetail/${auction.aukcija_sifra}`)
+}
+
 onMounted(async () => {
   const token = localStorage.getItem('auctiongo_token')
 
@@ -116,5 +286,15 @@ onMounted(async () => {
   artifacts.value = response.data
 
   console.log(response.data)
+
+  await fetchMyAuctions()
+})
+socket.on('bid-updated', async () => {
+  await fetchMyAuctions()
+})
+
+onUnmounted(() => {
+  socket.off('bid-updated')
+  socket.disconnect()
 })
 </script>

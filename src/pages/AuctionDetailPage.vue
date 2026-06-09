@@ -63,7 +63,7 @@
             class="inline-block q-px-md q-py-xs rounded-borders text-white q-mb-md"
             style="background-color: #1e6b4c"
           >
-            Satovi
+            Kategorija: {{ auction?.kategorija_naziv || 'Kategorija' }}
           </div>
 
           <div class="text-h3 text-dark text-weight-medium">
@@ -89,6 +89,13 @@
 
           <div class="text-body1">
             <strong>Stanje:</strong> {{ auction?.artefakt_stanje || '-' }}
+          </div>
+        </q-card>
+        <q-card class="q-pa-lg q-mt-xl">
+          <div class="text-h6 q-mb-md">Opis artefakta</div>
+
+          <div class="text-body1">
+            {{ auction?.artefakt_opis || 'Opis nije dostupan.' }}
           </div>
         </q-card>
       </div>
