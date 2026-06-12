@@ -67,6 +67,20 @@
               />
             </q-td>
           </template>
+          <template v-slot:body-cell-aukcija="props">
+            <q-td :props="props">
+              <q-btn
+                v-if="props.row.aukcija_sifra"
+                color="primary"
+                label="Aukcija"
+                no-caps
+                size="sm"
+                @click="openAuction(props.row)"
+              />
+
+              <span v-else>-</span>
+            </q-td>
+          </template>
         </q-table>
       </div>
 
@@ -136,12 +150,6 @@ const artifactColumns = [
     align: 'left',
   },
   {
-    name: 'stanje',
-    label: 'Stanje',
-    field: 'artefakt_stanje',
-    align: 'left',
-  },
-  {
     name: 'status',
     label: 'Status obrade',
     field: (row) => {
@@ -153,6 +161,12 @@ const artifactColumns = [
     },
     align: 'left',
     sortable: true,
+  },
+  {
+    name: 'aukcija',
+    label: 'Aukcija',
+    field: 'aukcija_sifra',
+    align: 'center',
   },
 ]
 
@@ -360,10 +374,16 @@ onMounted(async () => {
 })
 socket.on('bid-updated', async () => {
   await fetchMyAuctions()
+  await fetchNotifications()
+})
+socket.on('auction-closed', async () => {
+  await fetchMyAuctions()
+  await fetchNotifications()
 })
 
 onUnmounted(() => {
   socket.off('bid-updated')
+  socket.off('auction-closed')
   socket.disconnect()
 })
 </script>

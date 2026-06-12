@@ -400,9 +400,16 @@ onMounted(() => {
       await fetchBids()
     }
   })
+  socket.on('bid-updated', async (data) => {
+    if (String(data.auctionId) === String(route.params.id)) {
+      await fetchAuction()
+      await fetchBids()
+    }
+  })
 })
 
 onUnmounted(() => {
   clearInterval(countdownInterval)
+  socket.off('auction-closed')
 })
 </script>

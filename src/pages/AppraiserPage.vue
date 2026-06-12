@@ -49,9 +49,61 @@
     />
 
     <q-dialog v-model="appraisalDialog">
-      <q-card style="min-width: 700px; max-width: 900px">
-        <q-card-section>
+      <q-card style="width: 900px; max-width: 95vw; max-height: 90vh" class="scroll">
+        <q-card-section v-if="selectedArtifact">
+          <div class="text-h6 q-mb-sm">Artefakt: {{ selectedArtifact.artefakt_naziv }}</div>
+
+          <div class="text-body2 text-grey-8 q-mb-xs">
+            <strong>Kategorija:</strong> {{ selectedArtifact.kategorija_naziv || '-' }}
+          </div>
+
+          <div class="text-body2 text-grey-8 q-mb-xs">
+            <strong>Marka:</strong> {{ selectedArtifact.artefakt_marka || '-' }}
+          </div>
+
+          <div class="text-body2 text-grey-8 q-mb-xs">
+            <strong>Model:</strong> {{ selectedArtifact.artefakt_model || '-' }}
+          </div>
+
+          <div class="text-body2 text-grey-8 q-mb-xs">
+            <strong>Godina proizvodnje:</strong>
+            {{ selectedArtifact.artefakt_datum_proizvodnje || '-' }}
+          </div>
+
+          <div class="text-body2 text-grey-8 q-mb-xs">
+            <strong>Stanje:</strong> {{ selectedArtifact.artefakt_stanje || '-' }}
+          </div>
+
+          <div class="text-body2 text-grey-8 q-mb-xs">
+            <strong>Tražena cijena:</strong>
+            {{ formatPrice(selectedArtifact.artefakt_cijena_trazena) }}
+          </div>
+
+          <div class="text-body2 text-grey-8 q-mt-sm">
+            <strong>Opis:</strong>
+            {{ selectedArtifact.artefakt_opis || 'Opis nije dostupan.' }}
+          </div>
+        </q-card-section>
+
+        <q-separator /><q-card-section>
           <div class="text-h6">Procjena artefakta {{ selectedArtifact?.artefakt_naziv }}</div>
+
+          <div class="q-mt-md">
+            <div class="text-subtitle2 q-mb-sm">Fotografije artefakta</div>
+
+            <div v-if="artifactPhotos.length > 0" class="row q-col-gutter-sm">
+              <div v-for="(photo, index) in artifactPhotos" :key="index" class="col-12 col-sm-4">
+                <q-img
+                  :src="photo.fotografija_podatak"
+                  fit="contain"
+                  class="rounded-borders"
+                  style="height: 160px; background-color: #f9f6ef; border: 1px solid #d4a017"
+                />
+              </div>
+            </div>
+
+            <div v-else class="text-grey-7">Fotografije nisu dostupne.</div>
+          </div>
         </q-card-section>
 
         <q-card-section>
@@ -186,8 +238,9 @@ async function fetchArtifacts() {
   }
 }
 
-function openAppraisalDialog(artifact) {
+async function openAppraisalDialog(artifact) {
   selectedArtifact.value = artifact
+  artifactPhotos.value = []
 
   appraisalForm.value = {
     procjena_opis: '',
@@ -197,11 +250,32 @@ function openAppraisalDialog(artifact) {
     procjena_preporuka: null,
   }
 
+  await fetchArtifactPhotos(artifact.artefakt_sifra)
+
   appraisalDialog.value = true
 }
 
 const appraisalDialog = ref(false)
 const selectedArtifact = ref(null)
+
+const artifactPhotos = ref([])
+
+async function fetchArtifactPhotos(artifactId) {
+  try {
+    const token = localStorage.getItem('auctiongo_token')
+
+    const response = await axios.get(`http://localhost:3000/api/artifacts/${artifactId}/photos`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+
+    artifactPhotos.value = response.data
+  } catch (error) {
+    console.error('Greška kod dohvaćanja fotografija artefakta:', error)
+    artifactPhotos.value = []
+  }
+}
 
 const appraisalForm = ref({
   procjena_opis: '',

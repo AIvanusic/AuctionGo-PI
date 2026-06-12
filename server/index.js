@@ -359,10 +359,13 @@ app.get('/my-artifacts', verifyToken, async (req, res) => {
       a.artefakt_odbijen,
       a.artefakt_povucen,
       a.artefakt_prodan,
-      k.kategorija_naziv
+      k.kategorija_naziv,
+      auk.aukcija_sifra
     FROM PI2_proj_ARTEFAKT a
     JOIN PI2_proj_KATEGORIJA k
       ON a.artefakt_kategorija_sifra = k.kategorija_sifra
+    LEFT JOIN PI2_proj_AUKCIJA auk
+      ON auk.aukcija_artefakt_sifra = a.artefakt_sifra
     WHERE a.artefakt_korisnik_sifra = ?
     ORDER BY a.artefakt_sifra DESC`,
     [korisnikSifra],
@@ -495,17 +498,22 @@ app.get('/api/appraiser/my-artifacts', verifyToken, async (req, res) => {
         a.artefakt_marka,
         a.artefakt_model,
         a.artefakt_stanje,
+        a.artefakt_datum_proizvodnje,
+        a.artefakt_opis,
         a.artefakt_cijena_trazena,
         a.artefakt_procjena_sifra,
+        kat.kategorija_naziv,
         k.korisnik_ime,
         k.korisnik_prezime,
         k.korisnik_email
       FROM PI2_proj_ARTEFAKT a
       JOIN PI2_proj_KORISNIK k
         ON a.artefakt_korisnik_sifra = k.korisnik_sifra
+      LEFT JOIN PI2_proj_KATEGORIJA kat
+        ON a.artefakt_kategorija_sifra = kat.kategorija_sifra
       WHERE a.artefakt_procjenitelj_sifra = ?
-      AND a.artefakt_procjena_sifra IS NULL
-      AND a.artefakt_povucen = 'nije povucen'
+        AND a.artefakt_procjena_sifra IS NULL
+        AND a.artefakt_povucen = 'nije povucen'
       ORDER BY a.artefakt_sifra DESC
       `,
       [userId],
@@ -585,6 +593,29 @@ app.post('/api/appraiser/artifacts/:artifactId/appraisal', verifyToken, async (r
   } catch (error) {
     console.error('Greška kod spremanja procjene:', error)
     res.status(500).json({ message: 'Greška na serveru.' })
+  }
+})
+
+app.get('/api/artifacts/:artifactId/photos', verifyToken, async (req, res) => {
+  const { artifactId } = req.params
+
+  try {
+    const [photos] = await db.query(
+      `
+      SELECT
+        fotografija_podatak,
+        fotografija_redni_broj
+      FROM PI2_proj_ARTEFAKT_FOTOGRAFIJA
+      WHERE fotografija_artefakt_sifra = ?
+      ORDER BY fotografija_redni_broj ASC
+      `,
+      [artifactId],
+    )
+
+    res.json(photos)
+  } catch (error) {
+    console.error('Greška kod dohvaćanja fotografija artefakta:', error)
+    res.status(500).json({ message: 'Greška kod dohvaćanja fotografija.' })
   }
 })
 
@@ -937,8 +968,8 @@ app.get('/api/auctions/:id', async (req, res) => {
   const { id } = req.params
 
   try {
-    await updateAuctionStatus(id)
     await closeAuctionIfEnded(id)
+    await updateAuctionStatus(id)
 
     const [rows] = await db.query(
       `
@@ -1022,12 +1053,15 @@ app.post('/api/auctions/:id/bids', verifyToken, async (req, res) => {
     const [auctions] = await db.query(
       `
       SELECT
-        aukcija_sifra,
-        aukcija_cijena_trenutna,
-        aukcija_status,
-        aukcija_kraj
-      FROM PI2_proj_AUKCIJA
-      WHERE aukcija_sifra = ?
+        auk.aukcija_sifra,
+        auk.aukcija_cijena_trenutna,
+        auk.aukcija_status,
+        auk.aukcija_kraj,
+        a.artefakt_korisnik_sifra
+      FROM PI2_proj_AUKCIJA auk
+      JOIN PI2_proj_ARTEFAKT a
+      ON auk.aukcija_artefakt_sifra = a. artefakt_sifra
+      WHERE auk.aukcija_sifra = ?
       `,
       [id],
     )
@@ -1039,6 +1073,12 @@ app.post('/api/auctions/:id/bids', verifyToken, async (req, res) => {
     }
 
     const auction = auctions[0]
+
+    if (Number(auction.artefakt_korisnik_sifra) === Number(userId)) {
+      return res.status(400).json({
+        message: 'Ne možete licitirati na vlastiti artefakt.',
+      })
+    }
 
     if (new Date(auction.aukcija_kraj) <= new Date()) {
       return res.status(400).json({
@@ -1361,15 +1401,11 @@ async function closeAuctionIfEnded(auctionId) {
     `Pobijedili ste na aukciji s ponudom od ${formattedPrice} €.`,
   )
 
-  console.log('Prodavatelj ID:', auction.artefakt_korisnik_sifra)
-
   await createNotification(
     auction.artefakt_korisnik_sifra,
     'Artefakt je prodan',
     `Vaš artefakt prodan je za ${formattedPrice} €.`,
   )
-
-  console.log('Šaljem obavijest prodavatelju')
 
   for (const bidder of otherBidders) {
     await createNotification(
@@ -1409,6 +1445,35 @@ app.get('/api/user/notifications', verifyToken, async (req, res) => {
     })
   }
 })
+
+async function closeEndedAuctions() {
+  try {
+    const [auctions] = await db.query(
+      `
+      SELECT aukcija_sifra
+      FROM PI2_proj_AUKCIJA
+      WHERE aukcija_kraj <= NOW()
+        AND (
+          aukcija_status <> 'zavrsena'
+          OR aukcija_statusend IS NULL
+        )
+      `,
+    )
+
+    for (const auction of auctions) {
+      await closeAuctionIfEnded(auction.aukcija_sifra)
+
+      io.emit('auction-closed', {
+        auctionId: auction.aukcija_sifra,
+      })
+    }
+  } catch (error) {
+    console.error('Greška kod automatskog zatvaranja aukcija:', error)
+  }
+}
+setInterval(() => {
+  closeEndedAuctions()
+}, 10000)
 
 httpServer.listen(PORT, () => {
   console.log(`Server pokrenut na portu ${PORT}.`)
