@@ -347,27 +347,33 @@ app.get('/my-artifacts', verifyToken, async (req, res) => {
 
   const [artifacts] = await db.query(
     `SELECT
-      a.artefakt_sifra,
-      a.artefakt_naziv,
-      a.artefakt_opis,
-      a.artefakt_marka,
-      a.artefakt_model,
-      a.artefakt_datum_proizvodnje,
-      a.artefakt_stanje,
-      a.artefakt_cijena_trazena,
-      a.artefakt_odobren,
-      a.artefakt_odbijen,
-      a.artefakt_povucen,
-      a.artefakt_prodan,
-      k.kategorija_naziv,
-      auk.aukcija_sifra
-    FROM PI2_proj_ARTEFAKT a
-    JOIN PI2_proj_KATEGORIJA k
-      ON a.artefakt_kategorija_sifra = k.kategorija_sifra
-    LEFT JOIN PI2_proj_AUKCIJA auk
-      ON auk.aukcija_artefakt_sifra = a.artefakt_sifra
-    WHERE a.artefakt_korisnik_sifra = ?
-    ORDER BY a.artefakt_sifra DESC`,
+  a.artefakt_sifra,
+  a.artefakt_naziv,
+  a.artefakt_opis,
+  a.artefakt_marka,
+  a.artefakt_model,
+  a.artefakt_datum_proizvodnje,
+  a.artefakt_stanje,
+  a.artefakt_cijena_trazena,
+  a.artefakt_odobren,
+  a.artefakt_odbijen,
+  a.artefakt_povucen,
+  a.artefakt_prodan,
+  k.kategorija_naziv,
+  auk.aukcija_sifra,
+  auk.aukcija_status,
+auk.aukcija_statusend,
+  auk.aukcija_ugovor,
+  auk.aukcija_ugovor_datum,
+  auk.aukcija_ugovor_kupac_prihvatio,
+  auk.aukcija_ugovor_prodavatelj_prihvatio
+FROM PI2_proj_ARTEFAKT a
+JOIN PI2_proj_KATEGORIJA k
+  ON a.artefakt_kategorija_sifra = k.kategorija_sifra
+LEFT JOIN PI2_proj_AUKCIJA auk
+  ON auk.aukcija_artefakt_sifra = a.artefakt_sifra
+WHERE a.artefakt_korisnik_sifra = ?
+ORDER BY a.artefakt_sifra DESC`,
     [korisnikSifra],
   )
 
@@ -930,6 +936,82 @@ app.post('/api/manager/artifacts/:artifactId/create-auction', verifyToken, async
   }
 })
 
+app.get('/api/manager/completed-auctions', verifyToken, async (req, res) => {
+  const userId = req.user.korisnik_sifra
+
+  try {
+    const [rows] = await db.query(
+      `
+      SELECT
+        auk.aukcija_sifra,
+        auk.aukcija_naziv,
+        auk.aukcija_cijena_konacna,
+        auk.aukcija_status,
+        auk.aukcija_statusend,
+        auk.aukcija_ugovor,
+        auk.aukcija_ugovor_datum,
+        auk.aukcija_ugovor_kupac_prihvatio,
+auk.aukcija_ugovor_prodavatelj_prihvatio,
+        a.artefakt_naziv,
+        prod.korisnik_ime AS prodavatelj_ime,
+        prod.korisnik_prezime AS prodavatelj_prezime,
+        kup.korisnik_ime AS kupac_ime,
+        kup.korisnik_prezime AS kupac_prezime
+      FROM PI2_proj_AUKCIJA auk
+      JOIN PI2_proj_ARTEFAKT a
+        ON auk.aukcija_artefakt_sifra = a.artefakt_sifra
+      JOIN PI2_proj_KORISNIK prod
+        ON a.artefakt_korisnik_sifra = prod.korisnik_sifra
+      JOIN PI2_proj_PONUDA pobjednicka
+  ON pobjednicka.ponuda_aukcija_sifra = auk.aukcija_sifra
+  AND pobjednicka.ponuda_cijena_ponudjena = auk.aukcija_cijena_konacna
+  JOIN PI2_proj_KORISNIK kup
+        ON pobjednicka.ponuda_korisnik_sifra = kup.korisnik_sifra
+      WHERE auk.aukcija_korisnik_sifra = ?
+        AND auk.aukcija_status = 'zavrsena'
+        AND auk.aukcija_statusend = 'uspjesno zavrsena'
+      ORDER BY auk.aukcija_kraj DESC
+      `,
+      [userId],
+    )
+
+    res.json(rows)
+  } catch (error) {
+    console.error('Greška kod dohvaćanja završenih aukcija voditelja:', error)
+
+    res.status(500).json({
+      message: 'Greška kod dohvaćanja završenih aukcija.',
+    })
+  }
+})
+
+app.put('/api/manager/auctions/:auctionId/generate-contract', verifyToken, async (req, res) => {
+  const { auctionId } = req.params
+
+  try {
+    await db.query(
+      `
+      UPDATE PI2_proj_AUKCIJA
+      SET
+        aukcija_ugovor = 'da',
+        aukcija_ugovor_datum = NOW()
+      WHERE aukcija_sifra = ?
+      `,
+      [auctionId],
+    )
+
+    res.json({
+      message: 'Ugovor je generiran.',
+    })
+  } catch (error) {
+    console.error('Greška kod generiranja ugovora:', error)
+
+    res.status(500).json({
+      message: 'Greška kod generiranja ugovora.',
+    })
+  }
+})
+
 app.get('/api/auctions', async (req, res) => {
   try {
     const [rows] = await db.query(`
@@ -1208,6 +1290,10 @@ app.get('/api/user/my-auctions', verifyToken, async (req, res) => {
         auk.aukcija_status,
         auk.aukcija_statusend,
         auk.aukcija_cijena_konacna,
+        auk.aukcija_ugovor,
+auk.aukcija_ugovor_datum,
+auk.aukcija_ugovor_kupac_prihvatio,
+auk.aukcija_ugovor_prodavatelj_prihvatio,
         MAX(p.ponuda_cijena_ponudjena) AS moja_najvisa_ponuda
       FROM PI2_proj_PONUDA p
       JOIN PI2_proj_AUKCIJA auk
@@ -1474,6 +1560,87 @@ async function closeEndedAuctions() {
 setInterval(() => {
   closeEndedAuctions()
 }, 10000)
+
+app.put('/api/user/auctions/:auctionId/accept-contract', verifyToken, async (req, res) => {
+  const { auctionId } = req.params
+  const userId = req.user.korisnik_sifra
+
+  try {
+    const [rows] = await db.query(
+      `
+      SELECT
+        auk.aukcija_sifra,
+        auk.aukcija_ugovor,
+        auk.aukcija_ugovor_kupac_prihvatio,
+        auk.aukcija_ugovor_prodavatelj_prihvatio,
+        a.artefakt_korisnik_sifra,
+        p.ponuda_korisnik_sifra AS kupac_sifra
+      FROM PI2_proj_AUKCIJA auk
+      JOIN PI2_proj_ARTEFAKT a
+        ON auk.aukcija_artefakt_sifra = a.artefakt_sifra
+      JOIN PI2_proj_PONUDA p
+        ON p.ponuda_aukcija_sifra = auk.aukcija_sifra
+        AND p.ponuda_cijena_ponudjena = auk.aukcija_cijena_konacna
+      WHERE auk.aukcija_sifra = ?
+      `,
+      [auctionId],
+    )
+
+    if (rows.length === 0) {
+      return res.status(404).json({
+        message: 'Aukcija nije pronađena.',
+      })
+    }
+
+    const auction = rows[0]
+
+    if (!auction.aukcija_ugovor) {
+      return res.status(400).json({
+        message: 'Ugovor još nije generiran.',
+      })
+    }
+
+    if (Number(userId) === Number(auction.kupac_sifra)) {
+      await db.query(
+        `
+        UPDATE PI2_proj_AUKCIJA
+        SET aukcija_ugovor_kupac_prihvatio = 'da'
+        WHERE aukcija_sifra = ?
+        `,
+        [auctionId],
+      )
+
+      return res.json({
+        message: 'Prihvatili ste ugovor kao kupac.',
+      })
+    }
+
+    if (Number(userId) === Number(auction.artefakt_korisnik_sifra)) {
+      await db.query(
+        `
+        UPDATE PI2_proj_AUKCIJA
+        SET aukcija_ugovor_prodavatelj_prihvatio = 'da'
+        WHERE aukcija_sifra = ?
+        `,
+        [auctionId],
+      )
+
+      return res.json({
+        message: 'Prihvatili ste ugovor kao prodavatelj.',
+      })
+    }
+
+    return res.status(403).json({
+      message: 'Nemate ovlasti prihvatiti ovaj ugovor.',
+    })
+  } catch (error) {
+    console.error('Greška kod prihvata ugovora:', error)
+
+    res.status(500).json({
+      message: 'Greška kod prihvata ugovora.',
+    })
+  }
+})
 
 httpServer.listen(PORT, () => {
   console.log(`Server pokrenut na portu ${PORT}.`)

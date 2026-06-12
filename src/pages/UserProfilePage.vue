@@ -81,6 +81,21 @@
               <span v-else>-</span>
             </q-td>
           </template>
+          <template v-slot:body-cell-ugovor="props">
+            <q-td :props="props">
+              <q-btn
+                v-if="props.row.aukcija_ugovor"
+                color="positive"
+                label="Pregled ugovora"
+                no-caps
+                size="sm"
+                flat
+                @click="openContractDialog(props.row)"
+              />
+
+              <span v-else> - </span>
+            </q-td>
+          </template>
         </q-table>
       </div>
 
@@ -118,11 +133,55 @@
               />
             </q-td>
           </template>
+          <template v-slot:body-cell-ugovor="props">
+            <q-td :props="props">
+              <q-btn
+                v-if="props.row.aukcija_ugovor"
+                color="positive"
+                label="Pregled ugovora"
+                no-caps
+                size="sm"
+                flat
+                @click="openContractDialog(props.row)"
+              />
+              <span v-else> - </span>
+            </q-td>
+          </template>
         </q-table>
       </div>
     </div>
     <div v-else class="q-mt-lg">Za pregled profila potrebno se prijaviti.</div>
   </div>
+  <q-dialog v-model="contractDialog">
+    <q-card style="min-width: 700px; max-width: 95vw">
+      <q-card-section>
+        <div class="text-h6">Ugovor o kupoprodaji</div>
+      </q-card-section>
+
+      <q-card-section v-if="selectedContract">
+        <p>
+          <strong>Artefakt:</strong>
+          {{ selectedContract.artefakt_naziv || selectedContract.aukcija_naziv }}
+        </p>
+
+        <p>
+          <strong>Konačna cijena:</strong>
+          {{ formatPrice(selectedContract.aukcija_cijena_konacna) }}
+        </p>
+
+        <p class="q-mt-md">
+          Kupac se obvezuje platiti ugovoreni iznos, a prodavatelj isporučiti artefakt u stanju
+          opisanom u aukciji.
+        </p>
+
+        <q-btn color="primary" label="Prihvati ugovor" no-caps @click="acceptContract" />
+      </q-card-section>
+
+      <q-card-actions align="right">
+        <q-btn flat label="Zatvori" v-close-popup />
+      </q-card-actions>
+    </q-card>
+  </q-dialog>
 </template>
 
 <script setup>
@@ -151,16 +210,39 @@ const artifactColumns = [
   },
   {
     name: 'status',
-    label: 'Status obrade',
+    label: 'Status',
     field: (row) => {
-      if (row.artefakt_prodan === 'prodan') return 'Prodan'
       if (row.artefakt_povucen === 'povucen') return 'Povučen'
       if (row.artefakt_odbijen === 'odbijen') return 'Odbijen'
+
+      if (row.aukcija_status === 'zavrsena' && row.aukcija_ugovor) {
+        return 'Transakcija u tijeku'
+      }
+
+      if (row.aukcija_status === 'zavrsena') {
+        return 'Aukcija završena'
+      }
+
+      if (['prvi poziv', 'drugi poziv', 'zadnji poziv'].includes(row.aukcija_status)) {
+        return 'Na aukciji'
+      }
+
+      if (row.aukcija_status === 'ceka') {
+        return 'Aukcija zakazana'
+      }
+
       if (row.artefakt_odobren === 'odobren') return 'Odobren'
+
       return 'Na čekanju procjene'
     },
     align: 'left',
     sortable: true,
+  },
+  {
+    name: 'ugovor',
+    label: 'Ugovor',
+    field: 'aukcija_ugovor',
+    align: 'center',
   },
   {
     name: 'aukcija',
@@ -228,6 +310,12 @@ const myAuctionColumns = [
     field: (row) => getAuctionStatus(row),
     align: 'center',
     sortable: true,
+  },
+  {
+    name: 'ugovor',
+    label: 'Ugovor',
+    field: 'aukcija_ugovor',
+    align: 'center',
   },
   {
     name: 'akcije',
@@ -356,6 +444,47 @@ const notificationColumns = [
   },
 ]
 
+const contractDialog = ref(false)
+const selectedContract = ref(null)
+
+function openContractDialog(row) {
+  selectedContract.value = row
+  contractDialog.value = true
+}
+
+async function acceptContract() {
+  if (!selectedContract.value) return
+
+  try {
+    const token = localStorage.getItem('auctiongo_token')
+
+    await axios.put(
+      `http://localhost:3000/api/user/auctions/${selectedContract.value.aukcija_sifra}/accept-contract`,
+      {},
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    )
+
+    await fetchMyAuctions()
+    await fetchNotifications()
+
+    const response = await axios.get('http://localhost:3000/my-artifacts', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+
+    artifacts.value = response.data
+
+    contractDialog.value = false
+  } catch (error) {
+    console.error('Greška kod prihvata ugovora:', error)
+  }
+}
+
 onMounted(async () => {
   const token = localStorage.getItem('auctiongo_token')
 
@@ -366,7 +495,7 @@ onMounted(async () => {
   })
 
   artifacts.value = response.data
-
+  console.log('Artefakti:', artifacts.value)
   console.log(response.data)
 
   await fetchNotifications()

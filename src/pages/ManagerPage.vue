@@ -34,6 +34,89 @@
         </q-td>
       </template>
     </q-table>
+
+    <q-dialog v-model="contractDialog">
+      <q-card style="min-width: 700px">
+        <q-card-section>
+          <div class="text-h6">Ugovor o kupoprodaji</div>
+        </q-card-section>
+
+        <q-card-section v-if="selectedContract">
+          <p>
+            <strong>Artefakt:</strong>
+            {{ selectedContract.artefakt_naziv }}
+          </p>
+
+          <p>
+            <strong>Prodavatelj:</strong>
+            {{ selectedContract.prodavatelj_ime }}
+            {{ selectedContract.prodavatelj_prezime }}
+          </p>
+
+          <p>
+            <strong>Kupac:</strong>
+            {{ selectedContract.kupac_ime }}
+            {{ selectedContract.kupac_prezime }}
+          </p>
+
+          <p>
+            <strong>Dogovorena cijena:</strong>
+            {{ formatPrice(selectedContract.aukcija_cijena_konacna) }}
+          </p>
+
+          <p class="q-mt-md">
+            Kupac se obvezuje platiti ugovoreni iznos, a prodavatelj isporučiti artefakt u stanju
+            opisanom u aukciji.
+          </p>
+        </q-card-section>
+
+        <q-card-actions align="right">
+          <q-btn flat label="Zatvori" v-close-popup />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <div class="section-title q-mt-xl q-mb-md">Završene aukcije</div>
+
+    <q-table
+      :rows="completedAuctions"
+      :columns="completedAuctionColumns"
+      row-key="aukcija_sifra"
+      flat
+      bordered
+      :pagination="{ rowsPerPage: 10 }"
+      :rows-per-page-options="[5, 10, 20, 50, 0]"
+    >
+      <template v-slot:body-cell-akcije="props">
+        <q-td :props="props">
+          <q-btn
+            v-if="!props.row.aukcija_ugovor"
+            color="primary"
+            label="Izradi ugovor"
+            no-caps
+            dense
+            @click="generateContract(props.row)"
+          />
+
+          <q-btn
+            v-else
+            color="grey-7"
+            label="Pregled ugovora"
+            no-caps
+            dense
+            flat
+            @click="openContractDialog(props.row)"
+          />
+        </q-td>
+      </template>
+    </q-table>
+
+    <div class="text-caption text-grey-7 q-mt-sm">
+      <strong>Tijek transakcije:</strong>
+      Čeka ugovor → Čeka prihvat kupca → Čeka prihvat prodavatelja → Čeka uplatu → Čeka isporuku →
+      Čeka potvrdu primitka → Završeno
+    </div>
+
     <q-dialog v-model="auctionDialog">
       <q-card style="min-width: 600px">
         <q-card-section>
@@ -93,8 +176,9 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import axios from 'axios'
-import { Notify } from 'quasar'
+import { Notify, useQuasar } from 'quasar'
 
+const $q = useQuasar()
 const artifacts = ref([])
 
 function formatPrice(value) {
@@ -233,8 +317,124 @@ async function createAuction() {
   }
 }
 
+const completedAuctions = ref([])
+async function fetchCompletedAuctions() {
+  try {
+    const token = localStorage.getItem('auctiongo_token')
+
+    const response = await axios.get('http://localhost:3000/api/manager/completed-auctions', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+
+    completedAuctions.value = response.data
+  } catch (error) {
+    console.error('Greška kod dohvaćanja završenih aukcija:', error)
+  }
+}
+
+const completedAuctionColumns = [
+  {
+    name: 'artefakt_naziv',
+    label: 'Artefakt',
+    field: 'artefakt_naziv',
+    align: 'left',
+    sortable: true,
+  },
+  {
+    name: 'prodavatelj',
+    label: 'Prodavatelj',
+    field: (row) => `${row.prodavatelj_ime} ${row.prodavatelj_prezime}`,
+    align: 'left',
+    sortable: true,
+  },
+  {
+    name: 'kupac',
+    label: 'Kupac',
+    field: (row) => `${row.kupac_ime} ${row.kupac_prezime}`,
+    align: 'left',
+    sortable: true,
+  },
+  {
+    name: 'aukcija_cijena_konacna',
+    label: 'Konačna cijena',
+    field: 'aukcija_cijena_konacna',
+    format: (val) => formatPrice(val),
+    align: 'right',
+    sortable: true,
+  },
+  {
+    name: 'status_transakcija',
+    label: 'Status transakcije',
+    field: (row) => getTransactionStatus(row),
+    align: 'center',
+    sortable: true,
+  },
+  {
+    name: 'akcije',
+    label: 'Akcije',
+    align: 'center',
+  },
+]
+
+async function generateContract(row) {
+  try {
+    const token = localStorage.getItem('auctiongo_token')
+
+    await axios.put(
+      `http://localhost:3000/api/manager/auctions/${row.aukcija_sifra}/generate-contract`,
+      {},
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    )
+
+    await fetchCompletedAuctions()
+
+    $q.notify({
+      type: 'positive',
+      message: 'Ugovor je uspješno generiran.',
+    })
+  } catch (error) {
+    console.error('Greška kod generiranja ugovora:', error)
+
+    $q.notify({
+      type: 'negative',
+      message: 'Greška kod generiranja ugovora.',
+    })
+  }
+}
+
+const contractDialog = ref(false)
+const selectedContract = ref(null)
+
+function openContractDialog(row) {
+  selectedContract.value = row
+  contractDialog.value = true
+}
+
+function getTransactionStatus(row) {
+  if (!row.aukcija_ugovor) {
+    return 'Čeka ugovor'
+  }
+
+  if (row.aukcija_ugovor_kupac_prihvatio !== 'da') {
+    return 'Čeka prihvat kupca'
+  }
+
+  if (row.aukcija_ugovor_prodavatelj_prihvatio !== 'da') {
+    return 'Čeka prihvat prodavatelja'
+  }
+
+  return 'Čeka uplatu'
+}
+
 onMounted(() => {
   fetchArtifacts()
+  fetchCompletedAuctions()
 })
 </script>
 
