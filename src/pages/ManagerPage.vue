@@ -429,7 +429,15 @@ function getTransactionStatus(row) {
     return 'Čeka prihvat prodavatelja'
   }
 
-  return 'Čeka uplatu'
+  if (row.aukcija_kupac_uplatio !== 'uplatio') {
+    return 'Čeka uplatu kupca'
+  }
+
+  if (row.aukcija_ugovor_potvrdaplacanja !== 'placeno') {
+    return 'Čeka potvrdu prodavatelja'
+  }
+
+  return 'Čeka isporuku'
 }
 
 onMounted(() => {

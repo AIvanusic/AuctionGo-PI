@@ -359,14 +359,20 @@ app.get('/my-artifacts', verifyToken, async (req, res) => {
   a.artefakt_odbijen,
   a.artefakt_povucen,
   a.artefakt_prodan,
+  a.artefakt_korisnik_sifra AS prodavatelj_sifra,
   k.kategorija_naziv,
   auk.aukcija_sifra,
   auk.aukcija_status,
-auk.aukcija_statusend,
+  auk.aukcija_statusend,
   auk.aukcija_ugovor,
   auk.aukcija_ugovor_datum,
   auk.aukcija_ugovor_kupac_prihvatio,
-  auk.aukcija_ugovor_prodavatelj_prihvatio
+  auk.aukcija_ugovor_prodavatelj_prihvatio,
+  auk.aukcija_kupac_uplatio,
+  auk.aukcija_ugovor_potvrdaplacanja,
+  auk.aukcija_ugovor_potvrdaisporuke,
+  auk.aukcija_kupac_preuzeo,
+  auk.aukcija_ugovor_artefaktodgovara
 FROM PI2_proj_ARTEFAKT a
 JOIN PI2_proj_KATEGORIJA k
   ON a.artefakt_kategorija_sifra = k.kategorija_sifra
@@ -834,7 +840,8 @@ app.get('/api/manager/my-artifacts', verifyToken, async (req, res) => {
         k.korisnik_prezime,
         k.korisnik_email,
         p.procjena_cijena_procijenjena,
-        p.procjena_preporuka
+        p.procjena_preporuka,
+        a.artefakt_korisnik_sifra AS prodavatelj_sifra
       FROM PI2_proj_ARTEFAKT a
       JOIN PI2_proj_KORISNIK k
         ON a.artefakt_korisnik_sifra = k.korisnik_sifra
@@ -951,7 +958,9 @@ app.get('/api/manager/completed-auctions', verifyToken, async (req, res) => {
         auk.aukcija_ugovor,
         auk.aukcija_ugovor_datum,
         auk.aukcija_ugovor_kupac_prihvatio,
-auk.aukcija_ugovor_prodavatelj_prihvatio,
+        auk.aukcija_ugovor_prodavatelj_prihvatio,
+        auk.aukcija_kupac_uplatio,
+        auk.aukcija_ugovor_potvrdaplacanja,
         a.artefakt_naziv,
         prod.korisnik_ime AS prodavatelj_ime,
         prod.korisnik_prezime AS prodavatelj_prezime,
@@ -1291,13 +1300,22 @@ app.get('/api/user/my-auctions', verifyToken, async (req, res) => {
         auk.aukcija_statusend,
         auk.aukcija_cijena_konacna,
         auk.aukcija_ugovor,
-auk.aukcija_ugovor_datum,
-auk.aukcija_ugovor_kupac_prihvatio,
-auk.aukcija_ugovor_prodavatelj_prihvatio,
+        auk.aukcija_ugovor_datum,
+        auk.aukcija_ugovor_kupac_prihvatio,
+        auk.aukcija_ugovor_prodavatelj_prihvatio,
+        auk.aukcija_kupac_uplatio,
+        auk.aukcija_ugovor_potvrdaplacanja,
+        auk.aukcija_ugovor_potvrdaisporuke,
+        auk.aukcija_kupac_preuzeo,
+        auk.aukcija_ugovor_artefaktodgovara,
+        a.artefakt_korisnik_sifra AS prodavatelj_sifra,
+        p.ponuda_korisnik_sifra AS kupac_sifra,
         MAX(p.ponuda_cijena_ponudjena) AS moja_najvisa_ponuda
       FROM PI2_proj_PONUDA p
       JOIN PI2_proj_AUKCIJA auk
         ON p.ponuda_aukcija_sifra = auk.aukcija_sifra
+      JOIN PI2_proj_ARTEFAKT a
+        ON auk.aukcija_artefakt_sifra = a.artefakt_sifra
       WHERE p.ponuda_korisnik_sifra = ?
       GROUP BY
         auk.aukcija_sifra,
@@ -1306,7 +1324,17 @@ auk.aukcija_ugovor_prodavatelj_prihvatio,
         auk.aukcija_kraj,
         auk.aukcija_status,
         auk.aukcija_statusend,
-        auk.aukcija_cijena_konacna
+        auk.aukcija_cijena_konacna,
+        auk.aukcija_ugovor,
+        auk.aukcija_ugovor_datum,
+        auk.aukcija_ugovor_kupac_prihvatio,
+        auk.aukcija_ugovor_prodavatelj_prihvatio,
+        auk.aukcija_kupac_uplatio,
+        auk.aukcija_ugovor_potvrdaplacanja,
+        auk.aukcija_ugovor_potvrdaisporuke,
+        auk.aukcija_kupac_preuzeo,
+        p.ponuda_korisnik_sifra,
+        a.artefakt_korisnik_sifra
       ORDER BY auk.aukcija_kraj ASC
       `,
       [userId],
@@ -1641,6 +1669,314 @@ app.put('/api/user/auctions/:auctionId/accept-contract', verifyToken, async (req
     })
   }
 })
+
+app.put('/api/user/auctions/:auctionId/confirm-payment', verifyToken, async (req, res) => {
+  const { auctionId } = req.params
+  const userId = req.user.korisnik_sifra
+
+  try {
+    const [rows] = await db.query(
+      `
+      SELECT
+        auk.aukcija_sifra,
+        auk.aukcija_ugovor,
+        auk.aukcija_ugovor_kupac_prihvatio,
+        auk.aukcija_ugovor_prodavatelj_prihvatio,
+        p.ponuda_korisnik_sifra AS kupac_sifra
+      FROM PI2_proj_AUKCIJA auk
+      JOIN PI2_proj_PONUDA p
+        ON p.ponuda_aukcija_sifra = auk.aukcija_sifra
+        AND p.ponuda_cijena_ponudjena = auk.aukcija_cijena_konacna
+      WHERE auk.aukcija_sifra = ?
+      `,
+      [auctionId],
+    )
+
+    if (rows.length === 0) {
+      return res.status(404).json({ message: 'Aukcija nije pronađena.' })
+    }
+
+    const auction = rows[0]
+
+    if (Number(userId) !== Number(auction.kupac_sifra)) {
+      return res.status(403).json({
+        message: 'Samo kupac može potvrditi uplatu.',
+      })
+    }
+
+    if (
+      auction.aukcija_ugovor_kupac_prihvatio !== 'da' ||
+      auction.aukcija_ugovor_prodavatelj_prihvatio !== 'da'
+    ) {
+      return res.status(400).json({
+        message: 'Ugovor moraju prihvatiti obje strane prije potvrde uplate.',
+      })
+    }
+
+    await db.query(
+      `
+  UPDATE PI2_proj_AUKCIJA
+  SET aukcija_kupac_uplatio = 'uplatio'
+  WHERE aukcija_sifra = ?
+  `,
+      [auctionId],
+    )
+
+    res.json({ message: 'Kupac je potvrdio uplatu.' })
+  } catch (error) {
+    console.error('Greška kod potvrde uplate:', error)
+    res.status(500).json({ message: 'Greška kod potvrde uplate.' })
+  }
+})
+
+app.put('/api/user/auctions/:auctionId/confirm-received-payment', verifyToken, async (req, res) => {
+  const { auctionId } = req.params
+  const userId = req.user.korisnik_sifra
+
+  try {
+    const [rows] = await db.query(
+      `
+      SELECT
+        a.artefakt_korisnik_sifra,
+        auk.aukcija_kupac_uplatio
+      FROM PI2_proj_AUKCIJA auk
+      JOIN PI2_proj_ARTEFAKT a
+        ON auk.aukcija_artefakt_sifra = a.artefakt_sifra
+      WHERE auk.aukcija_sifra = ?
+      `,
+      [auctionId],
+    )
+
+    if (rows.length === 0) {
+      return res.status(404).json({
+        message: 'Aukcija nije pronađena.',
+      })
+    }
+
+    const auction = rows[0]
+
+    if (Number(userId) !== Number(auction.artefakt_korisnik_sifra)) {
+      return res.status(403).json({
+        message: 'Samo prodavatelj može potvrditi primitak uplate.',
+      })
+    }
+
+    if (auction.aukcija_kupac_uplatio !== 'uplatio') {
+      return res.status(400).json({
+        message: 'Kupac još nije potvrdio uplatu.',
+      })
+    }
+
+    await db.query(
+      `
+      UPDATE PI2_proj_AUKCIJA
+      SET aukcija_ugovor_potvrdaplacanja = 'placeno'
+      WHERE aukcija_sifra = ?
+      `,
+      [auctionId],
+    )
+
+    res.json({
+      message: 'Primitak uplate je potvrđen.',
+    })
+  } catch (error) {
+    console.error('Greška kod potvrde primitka uplate:', error)
+
+    res.status(500).json({
+      message: 'Greška kod potvrde primitka uplate.',
+    })
+  }
+})
+
+app.put('/api/user/auctions/:auctionId/confirm-delivery', verifyToken, async (req, res) => {
+  const { auctionId } = req.params
+  const userId = req.user.korisnik_sifra
+
+  try {
+    const [rows] = await db.query(
+      `
+      SELECT
+        a.artefakt_korisnik_sifra,
+        auk.aukcija_ugovor_potvrdaplacanja
+      FROM PI2_proj_AUKCIJA auk
+      JOIN PI2_proj_ARTEFAKT a
+        ON auk.aukcija_artefakt_sifra = a.artefakt_sifra
+      WHERE auk.aukcija_sifra = ?
+      `,
+      [auctionId],
+    )
+
+    if (rows.length === 0) {
+      return res.status(404).json({
+        message: 'Aukcija nije pronađena.',
+      })
+    }
+
+    const auction = rows[0]
+
+    if (Number(userId) !== Number(auction.artefakt_korisnik_sifra)) {
+      return res.status(403).json({
+        message: 'Samo prodavatelj može potvrditi isporuku.',
+      })
+    }
+
+    if (auction.aukcija_ugovor_potvrdaplacanja !== 'placeno') {
+      return res.status(400).json({
+        message: 'Isporuka se može potvrditi tek nakon potvrđene uplate.',
+      })
+    }
+
+    await db.query(
+      `
+      UPDATE PI2_proj_AUKCIJA
+      SET aukcija_ugovor_potvrdaisporuke = 'isporuceno'
+      WHERE aukcija_sifra = ?
+      `,
+      [auctionId],
+    )
+
+    res.json({
+      message: 'Isporuka je potvrđena.',
+    })
+  } catch (error) {
+    console.error('Greška kod potvrde isporuke:', error)
+
+    res.status(500).json({
+      message: 'Greška kod potvrde isporuke.',
+    })
+  }
+})
+
+app.put('/api/user/auctions/:auctionId/confirm-receipt', verifyToken, async (req, res) => {
+  const { auctionId } = req.params
+  const userId = req.user.korisnik_sifra
+
+  try {
+    const [rows] = await db.query(
+      `
+      SELECT
+        auk.aukcija_ugovor_potvrdaisporuke,
+        p.ponuda_korisnik_sifra AS kupac_sifra
+      FROM PI2_proj_AUKCIJA auk
+      JOIN PI2_proj_PONUDA p
+        ON p.ponuda_aukcija_sifra = auk.aukcija_sifra
+        AND p.ponuda_cijena_ponudjena = auk.aukcija_cijena_konacna
+      WHERE auk.aukcija_sifra = ?
+      `,
+      [auctionId],
+    )
+
+    if (rows.length === 0) {
+      return res.status(404).json({
+        message: 'Aukcija nije pronađena.',
+      })
+    }
+
+    const auction = rows[0]
+
+    if (Number(userId) !== Number(auction.kupac_sifra)) {
+      return res.status(403).json({
+        message: 'Samo kupac može potvrditi primitak artefakta.',
+      })
+    }
+
+    if (auction.aukcija_ugovor_potvrdaisporuke !== 'isporuceno') {
+      return res.status(400).json({
+        message: 'Artefakt još nije označen kao isporučen.',
+      })
+    }
+
+    await db.query(
+      `
+      UPDATE PI2_proj_AUKCIJA
+      SET aukcija_kupac_preuzeo = 'preuzeo'
+      WHERE aukcija_sifra = ?
+      `,
+      [auctionId],
+    )
+
+    res.json({
+      message: 'Primitak artefakta je potvrđen.',
+    })
+  } catch (error) {
+    console.error('Greška kod potvrde primitka artefakta:', error)
+
+    res.status(500).json({
+      message: 'Greška kod potvrde primitka artefakta.',
+    })
+  }
+})
+
+app.put(
+  '/api/user/auctions/:auctionId/confirm-artifact-condition',
+  verifyToken,
+  async (req, res) => {
+    const { auctionId } = req.params
+    const userId = req.user.korisnik_sifra
+    const { artefaktOdgovara } = req.body
+
+    try {
+      if (!['odgovara opisu', 'ne odgovara opisu'].includes(artefaktOdgovara)) {
+        return res.status(400).json({
+          message: 'Neispravna vrijednost potvrde artefakta.',
+        })
+      }
+
+      const [rows] = await db.query(
+        `
+      SELECT
+        auk.aukcija_kupac_preuzeo,
+        p.ponuda_korisnik_sifra AS kupac_sifra
+      FROM PI2_proj_AUKCIJA auk
+      JOIN PI2_proj_PONUDA p
+        ON p.ponuda_aukcija_sifra = auk.aukcija_sifra
+        AND p.ponuda_cijena_ponudjena = auk.aukcija_cijena_konacna
+      WHERE auk.aukcija_sifra = ?
+      `,
+        [auctionId],
+      )
+
+      if (rows.length === 0) {
+        return res.status(404).json({
+          message: 'Aukcija nije pronađena.',
+        })
+      }
+
+      const auction = rows[0]
+
+      if (Number(userId) !== Number(auction.kupac_sifra)) {
+        return res.status(403).json({
+          message: 'Samo kupac može potvrditi stanje artefakta.',
+        })
+      }
+
+      if (auction.aukcija_kupac_preuzeo !== 'preuzeo') {
+        return res.status(400).json({
+          message: 'Prvo je potrebno potvrditi primitak artefakta.',
+        })
+      }
+
+      await db.query(
+        `
+      UPDATE PI2_proj_AUKCIJA
+      SET aukcija_ugovor_artefaktodgovara = ?
+      WHERE aukcija_sifra = ?
+      `,
+        [artefaktOdgovara, auctionId],
+      )
+
+      res.json({
+        message: 'Stanje artefakta je potvrđeno.',
+      })
+    } catch (error) {
+      console.error('Greška kod potvrde stanja artefakta:', error)
+
+      res.status(500).json({
+        message: 'Greška kod potvrde stanja artefakta.',
+      })
+    }
+  },
+)
 
 httpServer.listen(PORT, () => {
   console.log(`Server pokrenut na portu ${PORT}.`)

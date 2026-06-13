@@ -174,7 +174,89 @@
           opisanom u aukciji.
         </p>
 
-        <q-btn color="primary" label="Prihvati ugovor" no-caps @click="acceptContract" />
+        <q-btn
+          v-if="
+            (Number(user.korisnik_sifra) === Number(selectedContract?.kupac_sifra) &&
+              selectedContract?.aukcija_ugovor_kupac_prihvatio !== 'da') ||
+            (Number(user.korisnik_sifra) === Number(selectedContract?.prodavatelj_sifra) &&
+              selectedContract?.aukcija_ugovor_prodavatelj_prihvatio !== 'da')
+          "
+          color="primary"
+          label="Prihvatite ugovor"
+          no-caps
+          @click="acceptContract"
+        />
+        <q-btn
+          v-if="
+            Number(user.korisnik_sifra) === Number(selectedContract?.kupac_sifra) &&
+            selectedContract?.aukcija_ugovor_kupac_prihvatio === 'da' &&
+            selectedContract?.aukcija_ugovor_prodavatelj_prihvatio === 'da' &&
+            selectedContract?.aukcija_kupac_uplatio !== 'uplatio'
+          "
+          color="primary"
+          label="Potvrdite uplatu"
+          no-caps
+          @click="confirmPayment(selectedContract)"
+        />
+
+        <q-btn
+          v-if="
+            Number(user.korisnik_sifra) === Number(selectedContract?.prodavatelj_sifra) &&
+            selectedContract?.aukcija_kupac_uplatio === 'uplatio' &&
+            selectedContract?.aukcija_ugovor_potvrdaplacanja !== 'placeno'
+          "
+          color="primary"
+          label="Potvrdite primitak uplate"
+          no-caps
+          @click="confirmReceivedPayment(selectedContract)"
+        />
+        <q-btn
+          v-if="
+            Number(user.korisnik_sifra) === Number(selectedContract?.prodavatelj_sifra) &&
+            selectedContract?.aukcija_ugovor_potvrdaplacanja === 'placeno' &&
+            selectedContract?.aukcija_ugovor_potvrdaisporuke !== 'isporuceno'
+          "
+          color="primary"
+          label="Potvrdite isporuku"
+          no-caps
+          @click="confirmDelivery(selectedContract)"
+        />
+        <q-btn
+          v-if="
+            Number(user.korisnik_sifra) === Number(selectedContract?.kupac_sifra) &&
+            selectedContract?.aukcija_ugovor_potvrdaisporuke === 'isporuceno' &&
+            selectedContract?.aukcija_kupac_preuzeo !== 'preuzeo'
+          "
+          color="primary"
+          label="Potvrdite primitak artefakta"
+          no-caps
+          @click="confirmReceipt(selectedContract)"
+        />
+        <q-btn
+          v-if="
+            Number(user.korisnik_sifra) === Number(selectedContract?.kupac_sifra) &&
+            selectedContract?.aukcija_kupac_preuzeo === 'preuzeo' &&
+            (!selectedContract?.aukcija_ugovor_artefaktodgovara ||
+              selectedContract?.aukcija_ugovor_artefaktodgovara === 'nije potvrđeno')
+          "
+          color="positive"
+          label="Odgovara opisu"
+          no-caps
+          @click="confirmArtifactCondition(selectedContract, 'odgovara opisu')"
+        />
+
+        <q-btn
+          v-if="
+            Number(user.korisnik_sifra) === Number(selectedContract?.kupac_sifra) &&
+            selectedContract?.aukcija_kupac_preuzeo === 'preuzeo' &&
+            (!selectedContract?.aukcija_ugovor_artefaktodgovara ||
+              selectedContract?.aukcija_ugovor_artefaktodgovara === 'nije potvrđeno')
+          "
+          color="negative"
+          label="Ne odgovara opisu"
+          no-caps
+          @click="confirmArtifactCondition(selectedContract, 'ne odgovara opisu')"
+        />
       </q-card-section>
 
       <q-card-actions align="right">
@@ -448,6 +530,7 @@ const contractDialog = ref(false)
 const selectedContract = ref(null)
 
 function openContractDialog(row) {
+  console.log('UGOVOR:', row)
   selectedContract.value = row
   contractDialog.value = true
 }
@@ -478,10 +561,164 @@ async function acceptContract() {
     })
 
     artifacts.value = response.data
-
     contractDialog.value = false
   } catch (error) {
     console.error('Greška kod prihvata ugovora:', error)
+  }
+}
+
+async function confirmPayment(row) {
+  try {
+    const token = localStorage.getItem('auctiongo_token')
+
+    await axios.put(
+      `http://localhost:3000/api/user/auctions/${row.aukcija_sifra}/confirm-payment`,
+      {},
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    )
+
+    await fetchMyAuctions()
+    await fetchNotifications()
+
+    const response = await axios.get('http://localhost:3000/my-artifacts', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+
+    artifacts.value = response.data
+
+    contractDialog.value = false
+  } catch (error) {
+    console.error('Greška kod potvrde uplate:', error)
+  }
+}
+
+async function confirmReceivedPayment(row) {
+  try {
+    const token = localStorage.getItem('auctiongo_token')
+
+    await axios.put(
+      `http://localhost:3000/api/user/auctions/${row.aukcija_sifra}/confirm-received-payment`,
+      {},
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    )
+
+    const response = await axios.get('http://localhost:3000/my-artifacts', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+
+    artifacts.value = response.data
+
+    await fetchMyAuctions()
+    await fetchNotifications()
+
+    contractDialog.value = false
+  } catch (error) {
+    console.error('Greška kod potvrde primitka uplate:', error)
+  }
+}
+
+async function confirmDelivery(row) {
+  try {
+    const token = localStorage.getItem('auctiongo_token')
+
+    await axios.put(
+      `http://localhost:3000/api/user/auctions/${row.aukcija_sifra}/confirm-delivery`,
+      {},
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    )
+
+    const response = await axios.get('http://localhost:3000/my-artifacts', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+
+    artifacts.value = response.data
+
+    await fetchMyAuctions()
+    await fetchNotifications()
+
+    contractDialog.value = false
+  } catch (error) {
+    console.error('Greška kod potvrde isporuke:', error)
+  }
+}
+
+async function confirmReceipt(row) {
+  try {
+    const token = localStorage.getItem('auctiongo_token')
+
+    await axios.put(
+      `http://localhost:3000/api/user/auctions/${row.aukcija_sifra}/confirm-receipt`,
+      {},
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    )
+
+    await fetchMyAuctions()
+    await fetchNotifications()
+
+    const response = await axios.get('http://localhost:3000/my-artifacts', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+
+    artifacts.value = response.data
+
+    contractDialog.value = false
+  } catch (error) {
+    console.error('Greška kod potvrde primitka artefakta:', error)
+  }
+}
+
+async function confirmArtifactCondition(row, artefaktOdgovara) {
+  try {
+    const token = localStorage.getItem('auctiongo_token')
+
+    await axios.put(
+      `http://localhost:3000/api/user/auctions/${row.aukcija_sifra}/confirm-artifact-condition`,
+      { artefaktOdgovara },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    )
+
+    await fetchMyAuctions()
+    await fetchNotifications()
+
+    const response = await axios.get('http://localhost:3000/my-artifacts', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+
+    artifacts.value = response.data
+
+    contractDialog.value = false
+  } catch (error) {
+    console.error('Greška kod potvrde stanja artefakta:', error)
   }
 }
 
