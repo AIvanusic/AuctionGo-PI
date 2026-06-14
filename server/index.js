@@ -961,6 +961,9 @@ app.get('/api/manager/completed-auctions', verifyToken, async (req, res) => {
         auk.aukcija_ugovor_prodavatelj_prihvatio,
         auk.aukcija_kupac_uplatio,
         auk.aukcija_ugovor_potvrdaplacanja,
+        auk.aukcija_ugovor_potvrdaisporuke,
+        auk.aukcija_kupac_preuzeo,
+        auk.aukcija_ugovor_artefaktodgovara,
         a.artefakt_naziv,
         prod.korisnik_ime AS prodavatelj_ime,
         prod.korisnik_prezime AS prodavatelj_prezime,
@@ -978,7 +981,7 @@ app.get('/api/manager/completed-auctions', verifyToken, async (req, res) => {
         ON pobjednicka.ponuda_korisnik_sifra = kup.korisnik_sifra
       WHERE auk.aukcija_korisnik_sifra = ?
         AND auk.aukcija_status = 'zavrsena'
-        AND auk.aukcija_statusend = 'uspjesno zavrsena'
+        AND auk.aukcija_statusend IN ('uspjesno zavrsena', 'transakcija zavrsena', 'reklamacija')
       ORDER BY auk.aukcija_kraj DESC
       `,
       [userId],
@@ -1082,19 +1085,44 @@ app.get('/api/auctions/:id', async (req, res) => {
         a.artefakt_datum_proizvodnje,
         a.artefakt_stanje,
         a.artefakt_opis,
+        k.korisnik_sifra AS prodavatelj_sifra,
         k.korisnik_username,
+        ROUND(AVG(r.recenzija_ocjena), 1) AS prodavatelj_prosjecna_ocjena,
+        COUNT(r.recenzija_sifra) AS prodavatelj_broj_recenzija,
         p.procjena_cijena_procijenjena
       FROM PI2_proj_AUKCIJA auk
       JOIN PI2_proj_ARTEFAKT a
         ON auk.aukcija_artefakt_sifra = a.artefakt_sifra
-              LEFT JOIN PI2_proj_KATEGORIJA kat
-  ON a.artefakt_kategorija_sifra = kat.kategorija_sifra
-  JOIN PI2_proj_KORISNIK k
+      LEFT JOIN PI2_proj_KATEGORIJA kat
+        ON a.artefakt_kategorija_sifra = kat.kategorija_sifra
+      JOIN PI2_proj_KORISNIK k
         ON a.artefakt_korisnik_sifra = k.korisnik_sifra
+      LEFT JOIN PI2_proj_RECENZIJA r
+        ON r.recenzija_primatelj_sifra = a.artefakt_korisnik_sifra
       LEFT JOIN PI2_proj_PROCJENA p
         ON a.artefakt_procjena_sifra = p.procjena_sifra
 
       WHERE auk.aukcija_sifra = ?
+     GROUP BY
+      kat.kategorija_sifra,
+      kat.kategorija_naziv,
+      auk.aukcija_sifra,
+      auk.aukcija_naziv,
+      auk.aukcija_cijena_pocetna,
+      auk.aukcija_cijena_trenutna,
+      auk.aukcija_cijena_rezervirana,
+      auk.aukcija_pocetak,
+      auk.aukcija_kraj,
+      auk.aukcija_status,
+      a.artefakt_sifra,
+      a.artefakt_naziv,
+      a.artefakt_marka,
+      a.artefakt_model,
+      a.artefakt_datum_proizvodnje,
+      a.artefakt_stanje,
+      a.artefakt_opis,
+      k.korisnik_username,
+      p.procjena_cijena_procijenjena
       `,
       [id],
     )
@@ -1310,12 +1338,16 @@ app.get('/api/user/my-auctions', verifyToken, async (req, res) => {
         auk.aukcija_ugovor_artefaktodgovara,
         a.artefakt_korisnik_sifra AS prodavatelj_sifra,
         p.ponuda_korisnik_sifra AS kupac_sifra,
+        rec.recenzija_sifra AS moja_recenzija_sifra,
         MAX(p.ponuda_cijena_ponudjena) AS moja_najvisa_ponuda
       FROM PI2_proj_PONUDA p
       JOIN PI2_proj_AUKCIJA auk
         ON p.ponuda_aukcija_sifra = auk.aukcija_sifra
       JOIN PI2_proj_ARTEFAKT a
         ON auk.aukcija_artefakt_sifra = a.artefakt_sifra
+      LEFT JOIN PI2_proj_RECENZIJA rec
+        ON rec.recenzija_aukcija_sifra = auk.aukcija_sifra
+        AND rec.recenzija_davatelj_sifra = p.ponuda_korisnik_sifra
       WHERE p.ponuda_korisnik_sifra = ?
       GROUP BY
         auk.aukcija_sifra,
@@ -1334,7 +1366,8 @@ app.get('/api/user/my-auctions', verifyToken, async (req, res) => {
         auk.aukcija_ugovor_potvrdaisporuke,
         auk.aukcija_kupac_preuzeo,
         p.ponuda_korisnik_sifra,
-        a.artefakt_korisnik_sifra
+        a.artefakt_korisnik_sifra,
+        rec.recenzija_sifra
       ORDER BY auk.aukcija_kraj ASC
       `,
       [userId],
@@ -1977,6 +2010,166 @@ app.put(
     }
   },
 )
+
+app.put('/api/manager/auctions/:auctionId/complete', verifyToken, async (req, res) => {
+  const { auctionId } = req.params
+
+  try {
+    const [rows] = await db.query(
+      `
+      SELECT
+        aukcija_kupac_uplatio,
+        aukcija_ugovor_potvrdaplacanja,
+        aukcija_ugovor_potvrdaisporuke,
+        aukcija_kupac_preuzeo,
+        aukcija_ugovor_artefaktodgovara
+      FROM PI2_proj_AUKCIJA
+      WHERE aukcija_sifra = ?
+      `,
+      [auctionId],
+    )
+
+    if (rows.length === 0) {
+      return res.status(404).json({
+        message: 'Aukcija nije pronađena.',
+      })
+    }
+
+    const auction = rows[0]
+
+    if (
+      auction.aukcija_kupac_uplatio !== 'uplatio' ||
+      auction.aukcija_ugovor_potvrdaplacanja !== 'placeno' ||
+      auction.aukcija_ugovor_potvrdaisporuke !== 'isporuceno' ||
+      auction.aukcija_kupac_preuzeo !== 'preuzeo' ||
+      auction.aukcija_ugovor_artefaktodgovara !== 'odgovara opisu'
+    ) {
+      return res.status(400).json({
+        message: 'Transakcija još nije spremna za zaključenje.',
+      })
+    }
+
+    await db.query(
+      `
+      UPDATE PI2_proj_AUKCIJA
+      SET aukcija_statusend = 'transakcija zavrsena'
+      WHERE aukcija_sifra = ?
+      `,
+      [auctionId],
+    )
+
+    res.json({
+      message: 'Transakcija uspješno zaključena.',
+    })
+  } catch (error) {
+    console.error('Greška kod zaključenja transakcije:', error)
+
+    res.status(500).json({
+      message: 'Greška kod zaključenja transakcije.',
+    })
+  }
+})
+
+app.post('/api/reviews', verifyToken, async (req, res) => {
+  const davateljSifra = req.user.korisnik_sifra
+
+  const { aukcijaSifra, primateljSifra, ocjena, komentar } = req.body
+
+  try {
+    await db.query(
+      `
+      INSERT INTO PI2_proj_RECENZIJA (
+        recenzija_ocjena,
+        recenzija_komentar,
+        recenzija_korisnik_sifra,
+        recenzija_aukcija_sifra,
+        recenzija_davatelj_sifra,
+        recenzija_primatelj_sifra
+      )
+      VALUES (?, ?, ?, ?, ?, ?)
+      `,
+      [ocjena, komentar, primateljSifra, aukcijaSifra, davateljSifra, primateljSifra],
+    )
+
+    res.json({
+      message: 'Recenzija spremljena.',
+    })
+  } catch (error) {
+    console.error('Greška kod spremanja recenzije:', error)
+
+    res.status(500).json({
+      message: 'Greška kod spremanja recenzije.',
+    })
+  }
+})
+
+app.get('/api/users/:userId/reviews', async (req, res) => {
+  const { userId } = req.params
+
+  try {
+    const [rows] = await db.query(
+      `
+      SELECT
+        r.recenzija_sifra,
+        r.recenzija_ocjena,
+        r.recenzija_komentar,
+        r.recenzija_datum,
+        auk.aukcija_naziv,
+        dav.korisnik_username AS davatelj_username
+      FROM PI2_proj_RECENZIJA r
+      LEFT JOIN PI2_proj_AUKCIJA auk
+        ON r.recenzija_aukcija_sifra = auk.aukcija_sifra
+      LEFT JOIN PI2_proj_KORISNIK dav
+        ON r.recenzija_davatelj_sifra = dav.korisnik_sifra
+      WHERE r.recenzija_primatelj_sifra = ?
+      ORDER BY r.recenzija_datum DESC
+      `,
+      [userId],
+    )
+
+    res.json(rows)
+  } catch (error) {
+    console.error('Greška kod dohvaćanja recenzija:', error)
+
+    res.status(500).json({
+      message: 'Greška kod dohvaćanja recenzija.',
+    })
+  }
+})
+
+app.get('/api/user/my-reviews', verifyToken, async (req, res) => {
+  const userId = req.user.korisnik_sifra
+
+  try {
+    const [rows] = await db.query(
+      `
+      SELECT
+        r.recenzija_sifra,
+        r.recenzija_ocjena,
+        r.recenzija_komentar,
+        r.recenzija_datum,
+        auk.aukcija_naziv,
+        dav.korisnik_username AS davatelj_username
+      FROM PI2_proj_RECENZIJA r
+      LEFT JOIN PI2_proj_AUKCIJA auk
+        ON r.recenzija_aukcija_sifra = auk.aukcija_sifra
+      LEFT JOIN PI2_proj_KORISNIK dav
+        ON r.recenzija_davatelj_sifra = dav.korisnik_sifra
+      WHERE r.recenzija_primatelj_sifra = ?
+      ORDER BY r.recenzija_datum DESC
+      `,
+      [userId],
+    )
+
+    res.json(rows)
+  } catch (error) {
+    console.error('Greška kod dohvaćanja mojih recenzija:', error)
+
+    res.status(500).json({
+      message: 'Greška kod dohvaćanja mojih recenzija.',
+    })
+  }
+})
 
 httpServer.listen(PORT, () => {
   console.log(`Server pokrenut na portu ${PORT}.`)

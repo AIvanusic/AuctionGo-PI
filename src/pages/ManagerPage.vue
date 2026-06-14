@@ -76,7 +76,7 @@
       </q-card>
     </q-dialog>
 
-    <div class="section-title q-mt-xl q-mb-md">Završene aukcije</div>
+    <div class="section-title q-mt-xl q-mb-md">Završene aukcije i transakcije</div>
 
     <q-table
       :rows="completedAuctions"
@@ -106,6 +106,16 @@
             dense
             flat
             @click="openContractDialog(props.row)"
+          />
+
+          <q-btn
+            v-if="getTransactionStatus(props.row) === 'Spremno za zaključenje'"
+            color="primary"
+            label="Zaključi transakciju"
+            no-caps
+            dense
+            class="q-ml-sm"
+            @click="completeTransaction(props.row)"
           />
         </q-td>
       </template>
@@ -417,6 +427,14 @@ function openContractDialog(row) {
 }
 
 function getTransactionStatus(row) {
+  if (row.aukcija_statusend === 'transakcija zavrsena') {
+    return 'Transakcija završena'
+  }
+
+  if (row.aukcija_statusend === 'reklamacija') {
+    return 'Reklamacija'
+  }
+
   if (!row.aukcija_ugovor) {
     return 'Čeka ugovor'
   }
@@ -437,7 +455,43 @@ function getTransactionStatus(row) {
     return 'Čeka potvrdu prodavatelja'
   }
 
-  return 'Čeka isporuku'
+  if (row.aukcija_ugovor_potvrdaisporuke !== 'isporuceno') {
+    return 'Čeka isporuku'
+  }
+
+  if (row.aukcija_kupac_preuzeo !== 'preuzeo') {
+    return 'Čeka potvrdu primitka'
+  }
+
+  if (row.aukcija_ugovor_artefaktodgovara === 'ne odgovara opisu') {
+    return 'Reklamacija'
+  }
+
+  if (row.aukcija_ugovor_artefaktodgovara === 'odgovara opisu') {
+    return 'Spremno za zaključenje'
+  }
+
+  return 'Čeka potvrdu stanja artefakta'
+}
+
+async function completeTransaction(row) {
+  try {
+    const token = localStorage.getItem('auctiongo_token')
+
+    await axios.put(
+      `http://localhost:3000/api/manager/auctions/${row.aukcija_sifra}/complete`,
+      {},
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    )
+
+    await fetchCompletedAuctions()
+  } catch (error) {
+    console.error('Greška kod zaključenja transakcije:', error)
+  }
 }
 
 onMounted(() => {

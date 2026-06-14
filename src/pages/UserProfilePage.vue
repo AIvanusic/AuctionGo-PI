@@ -40,6 +40,19 @@
         />
       </div>
       <div class="q-mt-xl">
+        <div class="q-mb-lg">
+          <div class="text-h6 text-dark">Moja prodavateljska ocjena</div>
+
+          <div class="cursor-pointer q-mt-sm" @click="myReviewsDialog = true">
+            <q-rating :model-value="Number(averageRating)" readonly size="20px" color="amber" />
+
+            <span class="q-ml-sm">
+              {{ averageRating }}
+              (Prema ocjenama {{ myReviews.length }} korisnika)
+            </span>
+          </div>
+        </div>
+
         <div class="text-h5 text-dark q-mb-md">Moji artefakti</div>
 
         <div v-if="artifacts.length === 0" class="text-dark">
@@ -257,6 +270,76 @@
           no-caps
           @click="confirmArtifactCondition(selectedContract, 'ne odgovara opisu')"
         />
+
+        <q-btn
+          v-if="
+            Number(user.korisnik_sifra) === Number(selectedContract?.kupac_sifra) &&
+            selectedContract?.aukcija_statusend === 'transakcija zavrsena' &&
+            !selectedContract?.moja_recenzija_sifra
+          "
+          color="primary"
+          label="Ostavite recenziju"
+          no-caps
+          @click="openReviewDialog(selectedContract)"
+        />
+      </q-card-section>
+
+      <q-card-actions align="right">
+        <q-btn flat label="Zatvori" v-close-popup />
+      </q-card-actions>
+    </q-card>
+  </q-dialog>
+  <q-dialog v-model="reviewDialog">
+    <q-card style="min-width: 500px">
+      <q-card-section>
+        <div class="text-h6">Recenzija prodavatelja</div>
+      </q-card-section>
+
+      <q-card-section>
+        <q-rating v-model="reviewForm.ocjena" max="5" size="lg" color="primary" class="q-mb-md" />
+
+        <q-input v-model="reviewForm.komentar" label="Komentar" type="textarea" outlined />
+      </q-card-section>
+
+      <q-card-actions align="right">
+        <q-btn flat label="Odustanite" v-close-popup />
+        <q-btn color="primary" label="Spremite recenziju" no-caps @click="submitReview" />
+      </q-card-actions>
+    </q-card>
+  </q-dialog>
+  <q-dialog v-model="myReviewsDialog">
+    <q-card style="min-width: 600px; max-width: 95vw">
+      <q-card-section>
+        <div class="text-h6">Moje primljene recenzije</div>
+      </q-card-section>
+
+      <q-card-section>
+        <div v-if="myReviews.length === 0" class="text-grey-7">
+          Još nemate primljenih recenzija.
+        </div>
+
+        <div v-for="review in myReviews" :key="review.recenzija_sifra" class="q-mb-md">
+          <div class="text-weight-medium">
+            {{ review.aukcija_naziv || 'Aukcija' }}
+          </div>
+
+          <q-rating
+            :model-value="Number(review.recenzija_ocjena)"
+            readonly
+            size="18px"
+            color="amber"
+          />
+
+          <div v-if="review.recenzija_komentar" class="text-body2 q-mt-xs">
+            {{ review.recenzija_komentar }}
+          </div>
+
+          <div class="text-caption text-grey-7 q-mt-xs">
+            Kupac: {{ review.davatelj_username || 'Korisnik' }}
+          </div>
+
+          <q-separator class="q-mt-md" />
+        </div>
       </q-card-section>
 
       <q-card-actions align="right">
@@ -267,7 +350,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
 import { io } from 'socket.io-client'
 import { onUnmounted } from 'vue'
@@ -722,6 +805,78 @@ async function confirmArtifactCondition(row, artefaktOdgovara) {
   }
 }
 
+const reviewDialog = ref(false)
+const reviewForm = ref({
+  ocjena: null,
+  komentar: '',
+})
+function openReviewDialog(row) {
+  selectedContract.value = row
+
+  reviewForm.value = {
+    ocjena: null,
+    komentar: '',
+  }
+
+  reviewDialog.value = true
+}
+
+async function submitReview() {
+  try {
+    const token = localStorage.getItem('auctiongo_token')
+
+    await axios.post(
+      'http://localhost:3000/api/reviews',
+      {
+        aukcijaSifra: selectedContract.value.aukcija_sifra,
+        primateljSifra: selectedContract.value.prodavatelj_sifra,
+        ocjena: reviewForm.value.ocjena,
+        komentar: reviewForm.value.komentar,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    )
+    await fetchMyAuctions()
+    reviewDialog.value = false
+  } catch (error) {
+    console.error('Greška kod spremanja recenzije:', error)
+  }
+}
+
+const myReviews = ref([])
+const myReviewsDialog = ref(false)
+
+async function fetchMyReviews() {
+  try {
+    const token = localStorage.getItem('auctiongo_token')
+
+    const response = await axios.get('http://localhost:3000/api/user/my-reviews', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+
+    myReviews.value = response.data
+    console.log('Moje primljene recenzije:', myReviews.value)
+    console.log('Prijavljeni korisnik:', user.korisnik_sifra)
+  } catch (error) {
+    console.error('Greška kod dohvaćanja mojih recenzija:', error)
+  }
+}
+
+const averageRating = computed(() => {
+  if (myReviews.value.length === 0) {
+    return 0
+  }
+
+  const sum = myReviews.value.reduce((acc, review) => acc + Number(review.recenzija_ocjena), 0)
+
+  return (sum / myReviews.value.length).toFixed(1)
+})
+
 onMounted(async () => {
   const token = localStorage.getItem('auctiongo_token')
 
@@ -737,10 +892,12 @@ onMounted(async () => {
 
   await fetchNotifications()
   await fetchMyAuctions()
+  await fetchMyReviews()
 })
 socket.on('bid-updated', async () => {
   await fetchMyAuctions()
   await fetchNotifications()
+  await fetchMyReviews()
 })
 socket.on('auction-closed', async () => {
   await fetchMyAuctions()

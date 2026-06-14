@@ -69,8 +69,30 @@
           <div class="text-h3 text-dark text-weight-medium">
             {{ auction?.artefakt_naziv || 'Učitavanje...' }}
           </div>
-          <div class="text-body1 text-grey-8 q-mt-sm">
-            Prodavatelj: {{ auction?.korisnik_username }}
+          <div v-if="auction" class="text-body2 text-grey-8 q-mt-sm">
+            <strong>Prodavatelj:</strong>
+            {{ auction.korisnik_username }}
+
+            <span
+              v-if="Number(auction.prodavatelj_broj_recenzija) > 0"
+              class="q-ml-sm text-primary text-weight-medium cursor-pointer"
+              style="text-decoration: underline"
+              @click="openSellerReviews"
+            >
+              <q-rating
+                :model-value="Number(auction.prodavatelj_prosjecna_ocjena)"
+                readonly
+                size="18px"
+                color="amber"
+              />
+
+              <span class="q-ml-xs">
+                {{ auction.prodavatelj_prosjecna_ocjena }}
+                (Ocijenilo korisnika: {{ auction.prodavatelj_broj_recenzija }})
+              </span>
+            </span>
+
+            <span v-else class="q-ml-sm text-grey-7"> Još nema recenzija </span>
           </div>
 
           <q-separator class="q-my-lg" />
@@ -192,6 +214,41 @@
     </div>
     let countdownInterval
   </div>
+  <q-dialog v-model="reviewsDialog">
+    <q-card style="min-width: 600px; max-width: 95vw">
+      <q-card-section>
+        <div class="text-h6">Recenzije prodavatelja</div>
+      </q-card-section>
+
+      <q-card-section>
+        <div v-if="sellerReviews.length === 0" class="text-grey-7">
+          Prodavatelj još nema recenzija.
+        </div>
+
+        <div v-for="review in sellerReviews" :key="review.recenzija_sifra" class="q-mb-md">
+          <div class="text-weight-medium">
+            {{ review.aukcija_naziv || 'Aukcija' }}
+          </div>
+
+          <div>⭐ {{ review.recenzija_ocjena }}/5</div>
+
+          <div v-if="review.recenzija_komentar" class="text-body2 q-mt-xs">
+            {{ review.recenzija_komentar }}
+          </div>
+
+          <div class="text-caption text-grey-7 q-mt-xs">
+            Kupac: {{ review.davatelj_username || 'Korisnik' }}
+          </div>
+
+          <q-separator class="q-mt-md" />
+        </div>
+      </q-card-section>
+
+      <q-card-actions align="right">
+        <q-btn flat label="Zatvori" v-close-popup />
+      </q-card-actions>
+    </q-card>
+  </q-dialog>
 </template>
 
 <script setup>
@@ -238,6 +295,8 @@ async function fetchAuction() {
     const response = await axios.get(`http://localhost:3000/api/auctions/${route.params.id}`)
 
     auction.value = response.data
+    console.log('AUKCIJA:', response.data)
+
     updateCountdown()
     if (auction.value.fotografije?.length > 0) {
       selectedPhoto.value = auction.value.fotografije[0].fotografija_podatak
@@ -383,6 +442,22 @@ function updateCountdown() {
 }
 
 const isAuctionEnded = computed(() => auctionEnded.value)
+
+const reviewsDialog = ref(false)
+const sellerReviews = ref([])
+
+async function openSellerReviews() {
+  try {
+    const response = await axios.get(
+      `http://localhost:3000/api/users/${auction.value.prodavatelj_sifra}/reviews`,
+    )
+
+    sellerReviews.value = response.data
+    reviewsDialog.value = true
+  } catch (error) {
+    console.error('Greška kod dohvaćanja recenzija prodavatelja:', error)
+  }
+}
 
 onMounted(() => {
   fetchAuction()
