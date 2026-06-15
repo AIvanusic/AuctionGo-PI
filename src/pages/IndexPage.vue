@@ -15,6 +15,30 @@
 
         <div class="text-subtitle1 text-dark">Digitalne aukcije u stvarnom vremenu</div>
       </div>
+      <div class="q-pa-lg text-center">
+        <div class="text-h5 q-mb-sm">Korisnici su nas ocijenili</div>
+
+        <q-rating
+          :model-value="Number(systemReviewsSummary.prosjecna_ocjena || 0)"
+          readonly
+          size="24px"
+          color="amber"
+        />
+
+        <div class="q-mt-sm">
+          {{ systemReviewsSummary.prosjecna_ocjena || 0 }}/5 ({{
+            systemReviewsSummary.broj_recenzija || 0
+          }}
+          recenzija)
+        </div>
+
+        <q-btn
+          flat
+          color="primary"
+          label="Pogledajte komentare"
+          @click="systemReviewsDialog = true"
+        />
+      </div>
     </div>
 
     <div class="row q-col-gutter-xl q-mt-lg" style="width: 100%; max-width: 1200px">
@@ -165,6 +189,78 @@
       </div>
     </div>
   </div>
+  <q-dialog v-model="systemReviewsDialog">
+    <q-card style="min-width: 900px; max-width: 95vw">
+      <q-card-section>
+        <div class="text-h6">Recenzije sustava AuctionGO</div>
+      </q-card-section>
+
+      <q-card-section>
+        <q-table
+          :rows="systemReviews"
+          :columns="systemReviewColumns"
+          row-key="recenzija_sustava_sifra"
+          flat
+          bordered
+        />
+      </q-card-section>
+
+      <q-card-actions align="right">
+        <q-btn flat label="Zatvori" v-close-popup />
+      </q-card-actions>
+    </q-card>
+  </q-dialog>
 </template>
 
-<script setup></script>
+<script setup>
+import { ref, onMounted } from 'vue'
+import axios from 'axios'
+
+const systemReviews = ref([])
+const systemReviewsSummary = ref({})
+const systemReviewsDialog = ref(false)
+
+async function fetchSystemReviews() {
+  try {
+    const response = await axios.get('http://localhost:3000/api/system-reviews')
+
+    systemReviews.value = response.data.reviews
+    systemReviewsSummary.value = response.data.summary
+  } catch (error) {
+    console.error('Greška kod dohvaćanja recenzija sustava:', error)
+  }
+}
+
+const systemReviewColumns = [
+  {
+    name: 'ocjena',
+    label: 'Ocjena',
+    field: 'recenzija_sustava_ocjena',
+    align: 'center',
+    sortable: true,
+  },
+  {
+    name: 'komentar',
+    label: 'Komentar',
+    field: 'recenzija_sustava_komentar',
+    align: 'left',
+  },
+  {
+    name: 'korisnik',
+    label: 'Korisnik',
+    field: 'korisnik_username',
+    align: 'left',
+  },
+  {
+    name: 'datum',
+    label: 'Datum',
+    field: 'recenzija_sustava_datum',
+    align: 'left',
+    sortable: true,
+  },
+]
+
+onMounted(async () => {
+  await fetchSystemReviews()
+})
+</script>

@@ -31,7 +31,7 @@
         <q-btn
           color="primary"
           text-color="dark"
-          label="Pregled aukcija"
+          label="Katalog aukcija"
           no-caps
           rounded
           unelevated
@@ -106,7 +106,33 @@
                 @click="openContractDialog(props.row)"
               />
 
-              <span v-else> - </span>
+              <div
+                v-if="
+                  artefakt_povucen !== 'povucen' &&
+                  artefakt_prodan !== 'prodan' &&
+                  !props.row.aukcija_sifra
+                "
+                class="q-mt-xs"
+              >
+                <q-btn
+                  flat
+                  no-caps
+                  size="sm"
+                  color="#1e3a5f"
+                  label="Povucite artefakt"
+                  @click="confirmWithdrawArtifact(props.row)"
+                />
+              </div>
+
+              <span
+                v-if="
+                  !props.row.aukcija_ugovor &&
+                  (props.row.artefakt_povucen === 'povucen' ||
+                    props.row.artefakt_prodan === 'prodan')
+                "
+              >
+                -
+              </span>
             </q-td>
           </template>
         </q-table>
@@ -282,6 +308,17 @@
           no-caps
           @click="openReviewDialog(selectedContract)"
         />
+
+        <q-btn
+          v-if="
+            selectedContract?.aukcija_statusend === 'transakcija zavrsena' &&
+            !selectedContract?.moja_recenzija_sustava_sifra
+          "
+          color="primary"
+          label="Ocijenite AuctionGO"
+          no-caps
+          @click="openSystemReviewDialog(selectedContract)"
+        />
       </q-card-section>
 
       <q-card-actions align="right">
@@ -343,7 +380,51 @@
       </q-card-section>
 
       <q-card-actions align="right">
-        <q-btn flat label="Zatvori" v-close-popup />
+        <q-btn flat label="Zatvorite" v-close-popup />
+      </q-card-actions>
+    </q-card>
+  </q-dialog>
+
+  <q-dialog v-model="systemReviewDialog">
+    <q-card style="min-width: 500px">
+      <q-card-section>
+        <div class="text-h6">Ocijenite AuctionGO!</div>
+      </q-card-section>
+
+      <q-card-section>
+        <q-rating
+          v-model="systemReviewForm.ocjena"
+          max="5"
+          size="lg"
+          color="amber"
+          class="q-mb-md"
+        />
+
+        <q-input v-model="systemReviewForm.komentar" label="Komentar" type="textarea" outlined />
+      </q-card-section>
+
+      <q-card-actions align="right">
+        <q-btn flat label="Odustanite" v-close-popup />
+        <q-btn color="primary" label="Spremite recenziju" no-caps @click="submitSystemReview" />
+      </q-card-actions>
+    </q-card>
+  </q-dialog>
+
+  <q-dialog v-model="withdrawDialog">
+    <q-card style="min-width: 420px">
+      <q-card-section>
+        <div class="text-h6">Povlačenje artefakta</div>
+      </q-card-section>
+
+      <q-card-section v-if="artifactToWithdraw">
+        Jeste li sigurni da želite povući artefakt
+        <strong>{{ artifactToWithdraw.artefakt_naziv }}</strong
+        >?
+      </q-card-section>
+
+      <q-card-actions align="right">
+        <q-btn flat label="Odustanite" v-close-popup />
+        <q-btn color="primary" label="Povucite artefakt" no-caps @click="withdrawArtifact" />
       </q-card-actions>
     </q-card>
   </q-dialog>
@@ -877,28 +958,123 @@ const averageRating = computed(() => {
   return (sum / myReviews.value.length).toFixed(1)
 })
 
+const systemReviewDialog = ref(false)
+const systemReviewForm = ref({
+  ocjena: null,
+  komentar: '',
+})
+
+function openSystemReviewDialog(row) {
+  selectedContract.value = row
+
+  systemReviewForm.value = {
+    ocjena: null,
+    komentar: '',
+  }
+
+  systemReviewDialog.value = true
+}
+
+async function submitSystemReview() {
+  try {
+    const token = localStorage.getItem('auctiongo_token')
+
+    await axios.post(
+      'http://localhost:3000/api/system-reviews',
+      {
+        ocjena: systemReviewForm.value.ocjena,
+        komentar: systemReviewForm.value.komentar,
+        aukcijaSifra: selectedContract.value.aukcija_sifra,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    )
+
+    await fetchMyAuctions()
+
+    const response = await axios.get('http://localhost:3000/my-artifacts', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+
+    artifacts.value = response.data
+
+    systemReviewDialog.value = false
+    contractDialog.value = false
+  } catch (error) {
+    console.error('Greška kod spremanja recenzije sustava:', error)
+  }
+}
+
+const withdrawDialog = ref(false)
+const artifactToWithdraw = ref(null)
+
+function confirmWithdrawArtifact(row) {
+  artifactToWithdraw.value = row
+  withdrawDialog.value = true
+}
+
+async function withdrawArtifact() {
+  if (!artifactToWithdraw.value) return
+
+  try {
+    const token = localStorage.getItem('auctiongo_token')
+
+    await axios.put(
+      `http://localhost:3000/api/user/artifacts/${artifactToWithdraw.value.artefakt_sifra}/withdraw`,
+      {},
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    )
+
+    const response = await axios.get('http://localhost:3000/my-artifacts', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+
+    artifacts.value = response.data
+
+    withdrawDialog.value = false
+    artifactToWithdraw.value = null
+  } catch (error) {
+    console.error('Greška kod povlačenja artefakta:', error)
+  }
+}
+
 onMounted(async () => {
   const token = localStorage.getItem('auctiongo_token')
 
-  const response = await axios.get('http://localhost:3000/my-artifacts', {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  })
+  try {
+    const response = await axios.get('http://localhost:3000/my-artifacts', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
 
-  artifacts.value = response.data
-  console.log('Artefakti:', artifacts.value)
-  console.log(response.data)
+    artifacts.value = response.data
+  } catch (error) {
+    console.error('Greška kod dohvaćanja artefakata:', error)
+  }
 
   await fetchNotifications()
   await fetchMyAuctions()
   await fetchMyReviews()
 })
+
 socket.on('bid-updated', async () => {
   await fetchMyAuctions()
   await fetchNotifications()
   await fetchMyReviews()
 })
+
 socket.on('auction-closed', async () => {
   await fetchMyAuctions()
   await fetchNotifications()

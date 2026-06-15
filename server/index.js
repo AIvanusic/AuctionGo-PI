@@ -372,15 +372,19 @@ app.get('/my-artifacts', verifyToken, async (req, res) => {
   auk.aukcija_ugovor_potvrdaplacanja,
   auk.aukcija_ugovor_potvrdaisporuke,
   auk.aukcija_kupac_preuzeo,
-  auk.aukcija_ugovor_artefaktodgovara
+  auk.aukcija_ugovor_artefaktodgovara,
+  sys.recenzija_sustava_sifra AS moja_recenzija_sustava_sifra
 FROM PI2_proj_ARTEFAKT a
 JOIN PI2_proj_KATEGORIJA k
   ON a.artefakt_kategorija_sifra = k.kategorija_sifra
 LEFT JOIN PI2_proj_AUKCIJA auk
   ON auk.aukcija_artefakt_sifra = a.artefakt_sifra
+LEFT JOIN PI2_proj_RECENZIJA_SUSTAVA sys
+  ON sys.recenzija_sustava_aukcija_sifra = auk.aukcija_sifra
+  AND sys.recenzija_sustava_korisnik_sifra = ?
 WHERE a.artefakt_korisnik_sifra = ?
 ORDER BY a.artefakt_sifra DESC`,
-    [korisnikSifra],
+    [korisnikSifra, korisnikSifra],
   )
 
   res.json(artifacts)
@@ -1339,7 +1343,8 @@ app.get('/api/user/my-auctions', verifyToken, async (req, res) => {
         a.artefakt_korisnik_sifra AS prodavatelj_sifra,
         p.ponuda_korisnik_sifra AS kupac_sifra,
         rec.recenzija_sifra AS moja_recenzija_sifra,
-        MAX(p.ponuda_cijena_ponudjena) AS moja_najvisa_ponuda
+        MAX(p.ponuda_cijena_ponudjena) AS moja_najvisa_ponuda,
+        sys.recenzija_sustava_sifra AS moja_recenzija_sustava_sifra
       FROM PI2_proj_PONUDA p
       JOIN PI2_proj_AUKCIJA auk
         ON p.ponuda_aukcija_sifra = auk.aukcija_sifra
@@ -1348,6 +1353,9 @@ app.get('/api/user/my-auctions', verifyToken, async (req, res) => {
       LEFT JOIN PI2_proj_RECENZIJA rec
         ON rec.recenzija_aukcija_sifra = auk.aukcija_sifra
         AND rec.recenzija_davatelj_sifra = p.ponuda_korisnik_sifra
+      LEFT JOIN PI2_proj_RECENZIJA_SUSTAVA sys
+        ON sys.recenzija_sustava_aukcija_sifra = auk.aukcija_sifra
+        AND sys.recenzija_sustava_korisnik_sifra = ?
       WHERE p.ponuda_korisnik_sifra = ?
       GROUP BY
         auk.aukcija_sifra,
@@ -1365,12 +1373,15 @@ app.get('/api/user/my-auctions', verifyToken, async (req, res) => {
         auk.aukcija_ugovor_potvrdaplacanja,
         auk.aukcija_ugovor_potvrdaisporuke,
         auk.aukcija_kupac_preuzeo,
+        auk.aukcija_ugovor_artefaktodgovara,
+        p.ponuda_korisnik_sifra,
         p.ponuda_korisnik_sifra,
         a.artefakt_korisnik_sifra,
-        rec.recenzija_sifra
+        rec.recenzija_sifra,
+        sys.recenzija_sustava_sifra
       ORDER BY auk.aukcija_kraj ASC
       `,
-      [userId],
+      [userId, userId],
     )
 
     res.json(rows)
@@ -2167,6 +2178,230 @@ app.get('/api/user/my-reviews', verifyToken, async (req, res) => {
 
     res.status(500).json({
       message: 'Greška kod dohvaćanja mojih recenzija.',
+    })
+  }
+})
+
+app.post('/api/system-reviews', verifyToken, async (req, res) => {
+  const userId = req.user.korisnik_sifra
+  const { ocjena, komentar, aukcijaSifra } = req.body
+
+  try {
+    if (!ocjena || Number(ocjena) < 1 || Number(ocjena) > 5) {
+      return res.status(400).json({
+        message: 'Ocjena mora biti između 1 i 5.',
+      })
+    }
+
+    if (!aukcijaSifra) {
+      return res.status(400).json({
+        message: 'Nedostaje šifra aukcije.',
+      })
+    }
+
+    const [existing] = await db.query(
+      `
+      SELECT recenzija_sustava_sifra
+      FROM PI2_proj_RECENZIJA_SUSTAVA
+      WHERE recenzija_sustava_korisnik_sifra = ?
+        AND recenzija_sustava_aukcija_sifra = ?
+      `,
+      [userId, aukcijaSifra],
+    )
+
+    if (existing.length > 0) {
+      return res.status(400).json({
+        message: 'Već ste ocijenili sustav za ovu transakciju.',
+      })
+    }
+
+    await db.query(
+      `
+      INSERT INTO PI2_proj_RECENZIJA_SUSTAVA (
+        recenzija_sustava_ocjena,
+        recenzija_sustava_komentar,
+        recenzija_sustava_korisnik_sifra,
+        recenzija_sustava_aukcija_sifra
+      )
+      VALUES (?, ?, ?, ?)
+      `,
+      [ocjena, komentar || null, userId, aukcijaSifra],
+    )
+
+    res.json({
+      message: 'Recenzija sustava je spremljena.',
+    })
+  } catch (error) {
+    console.error('Greška kod spremanja recenzije sustava:', error)
+
+    res.status(500).json({
+      message: 'Greška kod spremanja recenzije sustava.',
+    })
+  }
+})
+
+app.get('/api/system-reviews', async (req, res) => {
+  try {
+    const [summaryRows] = await db.query(
+      `
+      SELECT
+        ROUND(AVG(recenzija_sustava_ocjena), 1) AS prosjecna_ocjena,
+        COUNT(recenzija_sustava_sifra) AS broj_recenzija
+      FROM PI2_proj_RECENZIJA_SUSTAVA
+      `,
+    )
+
+    const [reviews] = await db.query(
+      `
+      SELECT
+        r.recenzija_sustava_sifra,
+        r.recenzija_sustava_ocjena,
+        r.recenzija_sustava_komentar,
+        r.recenzija_sustava_datum,
+        k.korisnik_username
+      FROM PI2_proj_RECENZIJA_SUSTAVA r
+      LEFT JOIN PI2_proj_KORISNIK k
+        ON r.recenzija_sustava_korisnik_sifra = k.korisnik_sifra
+      ORDER BY r.recenzija_sustava_datum DESC
+      `,
+    )
+
+    res.json({
+      summary: summaryRows[0],
+      reviews,
+    })
+  } catch (error) {
+    console.error('Greška kod dohvaćanja recenzija sustava:', error)
+
+    res.status(500).json({
+      message: 'Greška kod dohvaćanja recenzija sustava.',
+    })
+  }
+})
+
+app.put('/api/user/artifacts/:artifactId/withdraw', verifyToken, async (req, res) => {
+  const { artifactId } = req.params
+  const userId = req.user.korisnik_sifra
+
+  try {
+    const [artifacts] = await db.query(
+      `
+      SELECT
+        artefakt_sifra,
+        artefakt_korisnik_sifra,
+        artefakt_povucen,
+        artefakt_prodan,
+        artefakt_zahtjev_povlacenje
+      FROM PI2_proj_ARTEFAKT
+      WHERE artefakt_sifra = ?
+      `,
+      [artifactId],
+    )
+
+    if (artifacts.length === 0) {
+      return res.status(404).json({
+        message: 'Artefakt nije pronađen.',
+      })
+    }
+
+    const artifact = artifacts[0]
+
+    if (Number(artifact.artefakt_korisnik_sifra) !== Number(userId)) {
+      return res.status(403).json({
+        message: 'Možete povući samo vlastiti artefakt.',
+      })
+    }
+
+    if (artifact.artefakt_prodan === 'prodan') {
+      return res.status(400).json({
+        message: 'Prodani artefakt nije moguće povući.',
+      })
+    }
+
+    if (artifact.artefakt_povucen === 'povucen') {
+      return res.status(400).json({
+        message: 'Artefakt je već povučen.',
+      })
+    }
+
+    const [auctions] = await db.query(
+      `
+      SELECT
+        aukcija_sifra,
+        aukcija_status,
+        aukcija_statusend
+      FROM PI2_proj_AUKCIJA
+      WHERE aukcija_artefakt_sifra = ?
+      ORDER BY aukcija_sifra DESC
+      LIMIT 1
+      `,
+      [artifactId],
+    )
+
+    if (auctions.length === 0) {
+      await db.query(
+        `
+        UPDATE PI2_proj_ARTEFAKT
+        SET artefakt_povucen = 'povucen'
+        WHERE artefakt_sifra = ?
+        `,
+        [artifactId],
+      )
+
+      return res.json({
+        message: 'Artefakt je uspješno povučen.',
+      })
+    }
+
+    const auction = auctions[0]
+
+    if (['ceka', 'prvi poziv', 'drugi poziv', 'zadnji poziv'].includes(auction.aukcija_status)) {
+      if (artifact.artefakt_zahtjev_povlacenje === 'da') {
+        return res.status(400).json({
+          message: 'Zahtjev za povlačenje već je poslan.',
+        })
+      }
+
+      await db.query(
+        `
+        UPDATE PI2_proj_ARTEFAKT
+        SET artefakt_zahtjev_povlacenje = 'da'
+        WHERE artefakt_sifra = ?
+        `,
+        [artifactId],
+      )
+
+      return res.json({
+        message: 'Zahtjev za povlačenje poslan je voditelju aukcije.',
+      })
+    }
+
+    if (
+      auction.aukcija_status === 'zavrsena' &&
+      ['bez ponuda', 'ponistena'].includes(auction.aukcija_statusend)
+    ) {
+      await db.query(
+        `
+        UPDATE PI2_proj_ARTEFAKT
+        SET artefakt_povucen = 'povucen'
+        WHERE artefakt_sifra = ?
+        `,
+        [artifactId],
+      )
+
+      return res.json({
+        message: 'Artefakt je uspješno povučen.',
+      })
+    }
+
+    return res.status(400).json({
+      message: 'Artefakt nije moguće povući nakon uspješno završene aukcije.',
+    })
+  } catch (error) {
+    console.error('Greška kod povlačenja artefakta:', error)
+
+    res.status(500).json({
+      message: 'Greška kod povlačenja artefakta.',
     })
   }
 })
