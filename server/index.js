@@ -2660,6 +2660,114 @@ app.put('/api/manager/withdrawal-requests/:artifactId/reject', verifyToken, asyn
   }
 })
 
+app.get('/api/user/notifications/unread-count', verifyToken, async (req, res) => {
+  const userId = req.user.korisnik_sifra
+
+  try {
+    const [rows] = await db.query(
+      `
+      SELECT COUNT(*) AS unreadCount
+      FROM PI2_proj_OBAVIJEST
+      WHERE obavijest_korisnik_sifra = ?
+        AND obavijest_procitana = 'ne'
+      `,
+      [userId],
+    )
+
+    res.json({
+      unreadCount: rows[0].unreadCount,
+    })
+  } catch (error) {
+    console.error('Greška kod dohvaćanja broja nepročitanih obavijesti:', error)
+
+    res.status(500).json({
+      message: 'Greška kod dohvaćanja broja nepročitanih obavijesti.',
+    })
+  }
+})
+app.put('/api/user/notifications/:notificationId/read', verifyToken, async (req, res) => {
+  const userId = req.user.korisnik_sifra
+  const { notificationId } = req.params
+
+  try {
+    await db.query(
+      `
+      UPDATE PI2_proj_OBAVIJEST
+      SET obavijest_procitana = 'da'
+      WHERE obavijest_sifra = ?
+        AND obavijest_korisnik_sifra = ?
+      `,
+      [notificationId, userId],
+    )
+
+    res.json({
+      message: 'Obavijest je označena kao pročitana.',
+    })
+  } catch (error) {
+    console.error('Greška kod označavanja obavijesti kao pročitane:', error)
+
+    res.status(500).json({
+      message: 'Greška kod označavanja obavijesti kao pročitane.',
+    })
+  }
+})
+
+app.get('/api/user/notifications/recent', verifyToken, async (req, res) => {
+  const userId = req.user.korisnik_sifra
+
+  try {
+    const [rows] = await db.query(
+      `
+      SELECT
+        obavijest_sifra,
+        obavijest_vrijeme,
+        obavijest_naslov,
+        obavijest_tekst,
+        obavijest_procitana
+      FROM PI2_proj_OBAVIJEST
+      WHERE obavijest_korisnik_sifra = ?
+      ORDER BY obavijest_vrijeme DESC
+      LIMIT 15
+      `,
+      [userId],
+    )
+
+    res.json(rows)
+  } catch (error) {
+    console.error('Greška kod dohvaćanja zadnjih obavijesti:', error)
+
+    res.status(500).json({
+      message: 'Greška kod dohvaćanja zadnjih obavijesti.',
+    })
+  }
+})
+
+app.put('/api/user/notifications/read-all', verifyToken, async (req, res) => {
+  const userId = req.user.korisnik_sifra
+
+  try {
+    await db.query(
+      `
+      UPDATE PI2_proj_OBAVIJEST
+      SET obavijest_procitana = 'da'
+      WHERE obavijest_korisnik_sifra = ?
+        AND obavijest_procitana = 'ne'
+      `,
+      [userId],
+    )
+
+    res.json({
+      message: 'Sve obavijesti su označene kao pročitane.',
+    })
+  } catch (error) {
+    console.error('Greška kod označavanja svih obavijesti kao pročitanih:', error)
+
+    res.status(500).json({
+      message: 'Greška kod označavanja svih obavijesti kao pročitanih.',
+    })
+  }
+})
+
 httpServer.listen(PORT, () => {
   console.log(`Server pokrenut na portu ${PORT}.`)
 })
