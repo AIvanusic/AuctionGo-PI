@@ -87,7 +87,14 @@
             </q-menu>
           </q-btn>
 
-          <q-btn flat no-caps icon="person" :label="user.korisnik_username" @click="goToUserArea" />
+          <q-btn
+            flat
+            no-caps
+            style="color: #f9f6ef"
+            icon="person"
+            :label="user.korisnik_username"
+            @click="goToUserArea"
+          />
 
           <q-btn outline color="primary" label="Odjava" no-caps rounded @click="logout" />
         </template>
@@ -101,9 +108,10 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { redirectByRole } from '../utils/redirectByRole'
 import axios from 'axios'
+import { socket } from 'src/services/socket'
 
 const user = ref(JSON.parse(localStorage.getItem('auctiongo_user')))
 
@@ -217,5 +225,16 @@ async function markAllNotificationsAsRead() {
 onMounted(async () => {
   await fetchUnreadCount()
   await fetchRecentNotifications()
+})
+
+socket.on('notification-created', async (data) => {
+  if (Number(data.userId) === Number(user.value?.korisnik_sifra)) {
+    await fetchUnreadCount()
+    await fetchRecentNotifications()
+  }
+})
+
+onUnmounted(() => {
+  socket.off('notification-created')
 })
 </script>

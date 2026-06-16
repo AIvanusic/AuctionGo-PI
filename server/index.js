@@ -1182,6 +1182,7 @@ app.post('/api/auctions/:id/bids', verifyToken, async (req, res) => {
       `
       SELECT
         auk.aukcija_sifra,
+        aukcija_naziv,
         auk.aukcija_cijena_trenutna,
         auk.aukcija_status,
         auk.aukcija_statusend,
@@ -1235,6 +1236,21 @@ app.post('/api/auctions/:id/bids', verifyToken, async (req, res) => {
       })
     }
 
+    const [currentLeaderRows] = await db.query(
+      `
+  SELECT
+    ponuda_korisnik_sifra,
+    ponuda_cijena_ponudjena
+  FROM PI2_proj_PONUDA
+  WHERE ponuda_aukcija_sifra = ?
+  ORDER BY ponuda_cijena_ponudjena DESC, ponuda_vrijeme DESC
+  LIMIT 1
+  `,
+      [id],
+    )
+
+    const currentLeader = currentLeaderRows[0]
+
     const [lastBids] = await db.query(
       `
       SELECT COUNT(*) AS broj_ponuda
@@ -1259,6 +1275,28 @@ app.post('/api/auctions/:id/bids', verifyToken, async (req, res) => {
       `,
       [String(nextBidNumber), bidPrice, userId, id],
     )
+
+    if (currentLeader && Number(currentLeader.ponuda_korisnik_sifra) !== Number(userId)) {
+      await db.query(
+        `
+    INSERT INTO PI2_proj_OBAVIJEST (
+      obavijest_vrijeme,
+      obavijest_naslov,
+      obavijest_tekst,
+      obavijest_korisnik_sifra
+    )
+    VALUES (NOW(), ?, ?, ?)
+    `,
+        [
+          'Nadmašeni ste',
+          `Netko je dao višu ponudu na aukciji "${auction.aukcija_naziv}".`,
+          currentLeader.ponuda_korisnik_sifra,
+        ],
+      )
+      io.emit('notification-created', {
+        userId: currentLeader.ponuda_korisnik_sifra,
+      })
+    }
 
     await db.query(
       `

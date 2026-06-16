@@ -160,6 +160,7 @@
           :pagination="{ rowsPerPage: 5 }"
         />
       </div>
+
       <div class="q-mt-xl">
         <div class="text-h5 text-dark q-mb-md">Aukcije na kojima sudjelujem</div>
 
@@ -171,6 +172,91 @@
           bordered
           :pagination="{ rowsPerPage: 5 }"
         >
+          <template v-slot:body="props">
+            <q-tr :props="props">
+              <q-td auto-width>
+                <q-btn
+                  flat
+                  round
+                  dense
+                  :icon="
+                    expandedMyAuctions.includes(props.row.aukcija_sifra)
+                      ? 'expand_less'
+                      : 'expand_more'
+                  "
+                  @click="
+                    expandedMyAuctions.includes(props.row.aukcija_sifra)
+                      ? expandedMyAuctions.splice(
+                          expandedMyAuctions.indexOf(props.row.aukcija_sifra),
+                          1,
+                        )
+                      : expandedMyAuctions.push(props.row.aukcija_sifra)
+                  "
+                />
+              </q-td>
+
+              <q-td key="aukcija_naziv" :props="props">
+                {{ props.row.aukcija_naziv }}
+              </q-td>
+
+              <q-td key="moja_najvisa_ponuda" :props="props">
+                {{ formatPrice(props.row.moja_najvisa_ponuda) }}
+              </q-td>
+
+              <q-td key="aukcija_cijena_trenutna" :props="props">
+                {{ formatPrice(props.row.aukcija_cijena_trenutna) }}
+              </q-td>
+
+              <q-td key="aukcija_kraj" :props="props">
+                {{ formatTimeLeft(props.row.aukcija_kraj) }}
+              </q-td>
+
+              <q-td key="status" :props="props">
+                {{ getAuctionStatus(props.row) }}
+              </q-td>
+
+              <q-td key="ugovor" :props="props">
+                <q-btn
+                  v-if="props.row.aukcija_ugovor"
+                  color="positive"
+                  label="Pregled ugovora"
+                  no-caps
+                  size="sm"
+                  flat
+                  @click="openContractDialog(props.row)"
+                />
+                <span v-else>-</span>
+              </q-td>
+
+              <q-td key="akcije" :props="props">
+                <q-btn
+                  color="primary"
+                  label="Detalji"
+                  no-caps
+                  size="sm"
+                  @click="openAuction(props.row)"
+                />
+              </q-td>
+            </q-tr>
+
+            <q-tr v-show="expandedMyAuctions.includes(props.row.aukcija_sifra)" :props="props">
+              <q-td colspan="100%">
+                <div class="q-pa-md bg-grey-2">
+                  <div>
+                    <strong>Datum završetka:</strong> {{ formatDateTime(props.row.aukcija_kraj) }}
+                  </div>
+                  <div>
+                    <strong>Konačna cijena:</strong>
+                    {{ formatPrice(props.row.aukcija_cijena_konacna) }}
+                  </div>
+                  <div>
+                    <strong>Status završetka:</strong> {{ props.row.aukcija_statusend || '-' }}
+                  </div>
+                </div>
+              </q-td>
+            </q-tr>
+          </template>
+
           <template v-slot:body-cell-akcije="props">
             <q-td :props="props">
               <q-btn
@@ -443,7 +529,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
-import { io } from 'socket.io-client'
+import { socket } from 'src/services/socket'
 import { onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 
@@ -528,7 +614,15 @@ async function fetchMyAuctions() {
   }
 }
 
+const expandedMyAuctions = ref([])
+
 const myAuctionColumns = [
+  {
+    name: 'expand',
+    label: '',
+    field: 'expand',
+    align: 'center',
+  },
   {
     name: 'aukcija_naziv',
     label: 'Aukcija',
@@ -648,8 +742,6 @@ function getAuctionStatus(row) {
 
   return 'Nadmašeni ste'
 }
-
-const socket = io('http://localhost:3000')
 
 const router = useRouter()
 
@@ -1098,6 +1190,5 @@ socket.on('auction-closed', async () => {
 onUnmounted(() => {
   socket.off('bid-updated')
   socket.off('auction-closed')
-  socket.disconnect()
 })
 </script>

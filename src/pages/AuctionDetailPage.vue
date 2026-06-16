@@ -256,7 +256,7 @@ import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import axios from 'axios'
 import { Notify } from 'quasar'
-import { io } from 'socket.io-client'
+import { socket } from 'src/services/socket'
 
 const route = useRoute()
 
@@ -404,8 +404,6 @@ const isLeadingBidder = computed(() => {
 
   return bids.value[0].ponuda_korisnik_sifra === currentUser.korisnik_sifra
 })
-
-const socket = io('http://localhost:3000')
 
 const timeLeft = ref('')
 let countdownInterval
