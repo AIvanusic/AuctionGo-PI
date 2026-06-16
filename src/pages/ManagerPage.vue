@@ -13,6 +13,46 @@
 
     <div class="section-title q-mt-xl q-mb-md">Dodijeljeni artefakti</div>
 
+    <div class="q-mt-xl">
+      <div class="text-h5 text-dark q-mb-md">Zahtjevi za povlačenje</div>
+
+      <div v-if="withdrawalRequests.length === 0" class="text-grey-7">
+        Nema zahtjeva za povlačenje.
+      </div>
+
+      <q-table
+        v-else
+        :rows="withdrawalRequests"
+        :columns="withdrawalRequestColumns"
+        row-key="artefakt_sifra"
+        flat
+        bordered
+        :pagination="{ rowsPerPage: 5 }"
+      >
+        <template v-slot:body-cell-akcije="props">
+          <q-td :props="props">
+            <q-btn
+              color="primary"
+              label="Odobrite"
+              no-caps
+              size="sm"
+              class="q-mr-sm"
+              @click="approveWithdrawalRequest(props.row)"
+            />
+
+            <q-btn
+              color="negative"
+              label="Odbijte"
+              no-caps
+              size="sm"
+              flat
+              @click="rejectWithdrawalRequest(props.row)"
+            />
+          </q-td>
+        </template>
+      </q-table>
+    </div>
+
     <q-table
       :rows="artifacts"
       :columns="artifactColumns"
@@ -494,9 +534,103 @@ async function completeTransaction(row) {
   }
 }
 
+const withdrawalRequests = ref([])
+const withdrawalRequestColumns = [
+  {
+    name: 'artefakt_naziv',
+    label: 'Artefakt',
+    field: 'artefakt_naziv',
+    align: 'left',
+    sortable: true,
+  },
+  {
+    name: 'prodavatelj',
+    label: 'Prodavatelj',
+    field: 'prodavatelj_username',
+    align: 'left',
+    sortable: true,
+  },
+  {
+    name: 'aukcija_status',
+    label: 'Status aukcije',
+    field: 'aukcija_status',
+    align: 'left',
+    sortable: true,
+  },
+  {
+    name: 'akcije',
+    label: 'Akcije',
+    field: 'akcije',
+    align: 'center',
+  },
+]
+
+async function fetchWithdrawalRequests() {
+  try {
+    const token = localStorage.getItem('auctiongo_token')
+
+    const response = await axios.get('http://localhost:3000/api/manager/withdrawal-requests', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+
+    withdrawalRequests.value = response.data
+  } catch (error) {
+    console.error('Greška kod dohvaćanja zahtjeva za povlačenje:', error)
+  }
+}
+
+async function approveWithdrawalRequest(row) {
+  try {
+    const token = localStorage.getItem('auctiongo_token')
+
+    const response = await axios.put(
+      `http://localhost:3000/api/manager/withdrawal-requests/${row.artefakt_sifra}/approve`,
+      {},
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    )
+
+    console.log(response.data.message)
+
+    fetchArtifacts()
+    fetchCompletedAuctions()
+    fetchWithdrawalRequests()
+  } catch (error) {
+    console.error('Greška kod odobravanja povlačenja:', error)
+  }
+}
+
+async function rejectWithdrawalRequest(row) {
+  try {
+    const token = localStorage.getItem('auctiongo_token')
+
+    const response = await axios.put(
+      `http://localhost:3000/api/manager/withdrawal-requests/${row.artefakt_sifra}/reject`,
+      {},
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    )
+
+    console.log(response.data.message)
+
+    fetchWithdrawalRequests()
+  } catch (error) {
+    console.error('Greška kod odbijanja povlačenja:', error)
+  }
+}
+
 onMounted(() => {
   fetchArtifacts()
   fetchCompletedAuctions()
+  fetchWithdrawalRequests()
 })
 </script>
 

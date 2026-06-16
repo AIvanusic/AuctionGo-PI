@@ -108,9 +108,13 @@
 
               <div
                 v-if="
-                  artefakt_povucen !== 'povucen' &&
-                  artefakt_prodan !== 'prodan' &&
-                  !props.row.aukcija_sifra
+                  props.row.artefakt_povucen !== 'povucen' &&
+                  props.row.artefakt_prodan !== 'prodan' &&
+                  props.row.artefakt_zahtjev_povlacenje !== 'da' &&
+                  (!props.row.aukcija_sifra ||
+                    ['ceka', 'prvi poziv', 'drugi poziv', 'zadnji poziv'].includes(
+                      props.row.aukcija_status,
+                    ))
                 "
                 class="q-mt-xs"
               >
@@ -119,9 +123,15 @@
                   no-caps
                   size="sm"
                   color="#1e3a5f"
-                  label="Povucite artefakt"
+                  :label="props.row.aukcija_sifra ? 'Zatražite povlačenje' : 'Povucite artefakt'"
                   @click="confirmWithdrawArtifact(props.row)"
                 />
+              </div>
+              <div
+                v-if="props.row.artefakt_zahtjev_povlacenje === 'da'"
+                class="text-grey-5 text-caption"
+              >
+                Zahtjev za povlačenje poslan
               </div>
 
               <span
@@ -1060,6 +1070,11 @@ onMounted(async () => {
     })
 
     artifacts.value = response.data
+    console.log('Artefakti:', artifacts.value)
+    console.log(
+      'Slika:',
+      artifacts.value.find((a) => a.artefakt_sifra === 6),
+    )
   } catch (error) {
     console.error('Greška kod dohvaćanja artefakata:', error)
   }

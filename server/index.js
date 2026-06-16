@@ -360,6 +360,7 @@ app.get('/my-artifacts', verifyToken, async (req, res) => {
   a.artefakt_povucen,
   a.artefakt_prodan,
   a.artefakt_korisnik_sifra AS prodavatelj_sifra,
+  a.artefakt_zahtjev_povlacenje,
   k.kategorija_naziv,
   auk.aukcija_sifra,
   auk.aukcija_status,
@@ -1048,7 +1049,11 @@ app.get('/api/auctions', async (req, res) => {
       LEFT JOIN PI2_proj_ARTEFAKT_FOTOGRAFIJA f
         ON f.fotografija_artefakt_sifra = a.artefakt_sifra
         AND f.fotografija_redni_broj = 1
-        WHERE auk.aukcija_status IN ('ceka', 'prvi poziv', 'drugi poziv', 'zadnji poziv')
+      WHERE auk.aukcija_status IN ('ceka', 'prvi poziv', 'drugi poziv', 'zadnji poziv')
+        AND (
+          auk.aukcija_statusend IS NULL
+          OR auk.aukcija_statusend <> 'ponistena'
+        )
       ORDER BY auk.aukcija_kraj ASC
     `)
 
@@ -1179,6 +1184,7 @@ app.post('/api/auctions/:id/bids', verifyToken, async (req, res) => {
         auk.aukcija_sifra,
         auk.aukcija_cijena_trenutna,
         auk.aukcija_status,
+        auk.aukcija_statusend,
         auk.aukcija_kraj,
         a.artefakt_korisnik_sifra
       FROM PI2_proj_AUKCIJA auk
@@ -1196,6 +1202,12 @@ app.post('/api/auctions/:id/bids', verifyToken, async (req, res) => {
     }
 
     const auction = auctions[0]
+
+    if (auction.aukcija_statusend === 'ponistena') {
+      return res.status(400).json({
+        message: 'Aukcija je poništena. Nije moguće dati novu ponudu.',
+      })
+    }
 
     if (Number(auction.artefakt_korisnik_sifra) === Number(userId)) {
       return res.status(400).json({
@@ -1401,7 +1413,8 @@ async function updateAuctionStatus(auctionId) {
       aukcija_sifra,
       aukcija_pocetak,
       aukcija_kraj,
-      aukcija_status
+      aukcija_status,
+      aukcija_statusend
     FROM PI2_proj_AUKCIJA
     WHERE aukcija_sifra = ?
     `,
@@ -1413,6 +1426,10 @@ async function updateAuctionStatus(auctionId) {
   }
 
   const auction = rows[0]
+
+  if (['ponistena', 'transakcija zavrsena', 'reklamacija'].includes(auction.aukcija_statusend)) {
+    return auction.aukcija_status
+  }
 
   const now = new Date()
   const start = new Date(auction.aukcija_pocetak)
@@ -2402,6 +2419,243 @@ app.put('/api/user/artifacts/:artifactId/withdraw', verifyToken, async (req, res
 
     res.status(500).json({
       message: 'Greška kod povlačenja artefakta.',
+    })
+  }
+})
+
+app.get('/api/manager/withdrawal-requests', verifyToken, async (req, res) => {
+  const managerId = req.user.korisnik_sifra
+
+  try {
+    const [rows] = await db.query(
+      `
+      SELECT
+        a.artefakt_sifra,
+        a.artefakt_naziv,
+        a.artefakt_stanje,
+        a.artefakt_zahtjev_povlacenje,
+        auk.aukcija_sifra,
+        auk.aukcija_naziv,
+        auk.aukcija_status,
+        auk.aukcija_statusend,
+        prod.korisnik_username AS prodavatelj_username
+      FROM PI2_proj_ARTEFAKT a
+      JOIN PI2_proj_KORISNIK prod
+        ON a.artefakt_korisnik_sifra = prod.korisnik_sifra
+      LEFT JOIN PI2_proj_AUKCIJA auk
+        ON auk.aukcija_artefakt_sifra = a.artefakt_sifra
+      WHERE a.artefakt_voditelj_sifra = ?
+        AND a.artefakt_zahtjev_povlacenje = 'da'
+      ORDER BY a.artefakt_sifra DESC
+      `,
+      [managerId],
+    )
+
+    res.json(rows)
+  } catch (error) {
+    console.error('Greška kod dohvaćanja zahtjeva za povlačenje:', error)
+
+    res.status(500).json({
+      message: 'Greška kod dohvaćanja zahtjeva za povlačenje.',
+    })
+  }
+})
+
+app.put('/api/manager/withdrawal-requests/:artifactId/approve', verifyToken, async (req, res) => {
+  const { artifactId } = req.params
+  const managerId = req.user.korisnik_sifra
+
+  try {
+    const [rows] = await db.query(
+      `
+      SELECT
+        a.artefakt_sifra,
+        a.artefakt_naziv,
+        a.artefakt_voditelj_sifra,
+        a.artefakt_korisnik_sifra,
+        a.artefakt_zahtjev_povlacenje,
+        auk.aukcija_sifra
+      FROM PI2_proj_ARTEFAKT a
+      LEFT JOIN PI2_proj_AUKCIJA auk
+        ON auk.aukcija_artefakt_sifra = a.artefakt_sifra
+      WHERE a.artefakt_sifra = ?
+      ORDER BY auk.aukcija_sifra DESC
+      LIMIT 1
+      `,
+      [artifactId],
+    )
+
+    if (rows.length === 0) {
+      return res.status(404).json({ message: 'Artefakt nije pronađen.' })
+    }
+
+    const artifact = rows[0]
+
+    if (Number(artifact.artefakt_voditelj_sifra) !== Number(managerId)) {
+      return res.status(403).json({
+        message: 'Samo dodijeljeni voditelj može odobriti povlačenje.',
+      })
+    }
+
+    if (artifact.artefakt_zahtjev_povlacenje !== 'da') {
+      return res.status(400).json({
+        message: 'Za ovaj artefakt ne postoji zahtjev za povlačenje.',
+      })
+    }
+
+    await db.query(
+      `
+      UPDATE PI2_proj_ARTEFAKT
+      SET
+        artefakt_povucen = 'povucen',
+        artefakt_zahtjev_povlacenje = 'ne'
+      WHERE artefakt_sifra = ?
+      `,
+      [artifactId],
+    )
+    const [participants] = await db.query(
+      `
+  SELECT DISTINCT ponuda_korisnik_sifra
+  FROM PI2_proj_PONUDA
+  WHERE ponuda_aukcija_sifra = ?
+  `,
+      [artifact.aukcija_sifra],
+    )
+
+    for (const participant of participants) {
+      await db.query(
+        `
+    INSERT INTO PI2_proj_OBAVIJEST (
+      obavijest_vrijeme,
+      obavijest_naslov,
+      obavijest_tekst,
+      obavijest_korisnik_sifra
+    )
+    VALUES (NOW(), ?, ?, ?)
+    `,
+        [
+          'Aukcija je poništena',
+          `Aukcija za artefakt "${artifact.artefakt_naziv}" poništena je na zahtjev prodavatelja.`,
+          participant.ponuda_korisnik_sifra,
+        ],
+      )
+    }
+
+    await db.query(
+      `
+  INSERT INTO PI2_proj_OBAVIJEST (
+    obavijest_vrijeme,
+    obavijest_naslov,
+    obavijest_tekst,
+    obavijest_korisnik_sifra
+  )
+  VALUES (NOW(), ?, ?, ?)
+  `,
+      [
+        'Zahtjev za povlačenje odobren',
+        `Vaš zahtjev za povlačenje artefakta "${artifact.artefakt_naziv}" je odobren.`,
+        artifact.artefakt_korisnik_sifra,
+      ],
+    )
+
+    if (artifact.aukcija_sifra) {
+      await db.query(
+        `
+        UPDATE PI2_proj_AUKCIJA
+        SET
+          aukcija_status = 'zavrsena',
+          aukcija_statusend = 'ponistena'
+        WHERE aukcija_sifra = ?
+        `,
+        [artifact.aukcija_sifra],
+      )
+    }
+
+    res.json({
+      message: 'Zahtjev za povlačenje je odobren.',
+    })
+  } catch (error) {
+    console.error('Greška kod odobravanja povlačenja:', error)
+
+    res.status(500).json({
+      message: 'Greška kod odobravanja povlačenja.',
+    })
+  }
+})
+
+app.put('/api/manager/withdrawal-requests/:artifactId/reject', verifyToken, async (req, res) => {
+  const { artifactId } = req.params
+  const managerId = req.user.korisnik_sifra
+
+  try {
+    const [rows] = await db.query(
+      `
+      SELECT
+        artefakt_sifra,
+        artefakt_naziv,
+        artefakt_voditelj_sifra,
+        artefakt_korisnik_sifra,
+        artefakt_zahtjev_povlacenje
+      FROM PI2_proj_ARTEFAKT
+      WHERE artefakt_sifra = ?
+      `,
+      [artifactId],
+    )
+
+    if (rows.length === 0) {
+      return res.status(404).json({
+        message: 'Artefakt nije pronađen.',
+      })
+    }
+
+    const artifact = rows[0]
+
+    if (Number(artifact.artefakt_voditelj_sifra) !== Number(managerId)) {
+      return res.status(403).json({
+        message: 'Samo dodijeljeni voditelj može odbiti zahtjev za povlačenje.',
+      })
+    }
+
+    if (artifact.artefakt_zahtjev_povlacenje !== 'da') {
+      return res.status(400).json({
+        message: 'Za ovaj artefakt ne postoji zahtjev za povlačenje.',
+      })
+    }
+
+    await db.query(
+      `
+      UPDATE PI2_proj_ARTEFAKT
+      SET artefakt_zahtjev_povlacenje = 'ne'
+      WHERE artefakt_sifra = ?
+      `,
+      [artifactId],
+    )
+
+    await db.query(
+      `
+      INSERT INTO PI2_proj_OBAVIJEST (
+        obavijest_vrijeme,
+        obavijest_naslov,
+        obavijest_tekst,
+        obavijest_korisnik_sifra
+      )
+      VALUES (NOW(), ?, ?, ?)
+      `,
+      [
+        'Zahtjev za povlačenje odbijen',
+        `Vaš zahtjev za povlačenje artefakta "${artifact.artefakt_naziv}" je odbijen.`,
+        artifact.artefakt_korisnik_sifra,
+      ],
+    )
+
+    res.json({
+      message: 'Zahtjev za povlačenje je odbijen.',
+    })
+  } catch (error) {
+    console.error('Greška kod odbijanja povlačenja:', error)
+
+    res.status(500).json({
+      message: 'Greška kod odbijanja povlačenja.',
     })
   }
 })
