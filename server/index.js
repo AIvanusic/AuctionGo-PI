@@ -363,6 +363,8 @@ app.get('/my-artifacts', verifyToken, async (req, res) => {
   a.artefakt_zahtjev_povlacenje,
   k.kategorija_naziv,
   auk.aukcija_sifra,
+  auk.aukcija_pocetak,
+  auk.aukcija_kraj,
   auk.aukcija_status,
   auk.aukcija_statusend,
   auk.aukcija_ugovor,
@@ -1283,14 +1285,16 @@ app.post('/api/auctions/:id/bids', verifyToken, async (req, res) => {
       obavijest_vrijeme,
       obavijest_naslov,
       obavijest_tekst,
-      obavijest_korisnik_sifra
+      obavijest_korisnik_sifra,
+      obavijest_aukcija_sifra
     )
-    VALUES (NOW(), ?, ?, ?)
+    // VALUES (NOW(), ?, ?, ?, ?)
     `,
         [
           'Nadmašeni ste',
           `Netko je dao višu ponudu na aukciji "${auction.aukcija_naziv}".`,
           currentLeader.ponuda_korisnik_sifra,
+          id,
         ],
       )
       io.emit('notification-created', {
@@ -1637,14 +1641,18 @@ app.get('/api/user/notifications', verifyToken, async (req, res) => {
     const [notifications] = await db.query(
       `
       SELECT
-        obavijest_sifra,
-        obavijest_vrijeme,
-        obavijest_naslov,
-        obavijest_tekst,
-        obavijest_procitana
-      FROM PI2_proj_OBAVIJEST
-      WHERE obavijest_korisnik_sifra = ?
-      ORDER BY obavijest_vrijeme DESC
+  o.obavijest_sifra,
+  o.obavijest_vrijeme,
+  o.obavijest_naslov,
+  o.obavijest_tekst,
+  o.obavijest_procitana,
+  o.obavijest_aukcija_sifra,
+  auk.aukcija_naziv
+FROM PI2_proj_OBAVIJEST o
+LEFT JOIN PI2_proj_AUKCIJA auk
+  ON o.obavijest_aukcija_sifra = auk.aukcija_sifra
+WHERE o.obavijest_korisnik_sifra = ?
+ORDER BY o.obavijest_vrijeme DESC
       `,
       [userId],
     )
@@ -2567,14 +2575,16 @@ app.put('/api/manager/withdrawal-requests/:artifactId/approve', verifyToken, asy
       obavijest_vrijeme,
       obavijest_naslov,
       obavijest_tekst,
-      obavijest_korisnik_sifra
+      obavijest_korisnik_sifra,
+      obavijest_aukcija_sifra
     )
-    VALUES (NOW(), ?, ?, ?)
+    VALUES (NOW(), ?, ?, ?, ?)
     `,
         [
           'Aukcija je poništena',
           `Aukcija za artefakt "${artifact.artefakt_naziv}" poništena je na zahtjev prodavatelja.`,
           participant.ponuda_korisnik_sifra,
+          artifact.aukcija_sifra,
         ],
       )
     }
@@ -2585,14 +2595,16 @@ app.put('/api/manager/withdrawal-requests/:artifactId/approve', verifyToken, asy
     obavijest_vrijeme,
     obavijest_naslov,
     obavijest_tekst,
-    obavijest_korisnik_sifra
+    obavijest_korisnik_sifra,
+    obavijest_aukcija_sifra
   )
-  VALUES (NOW(), ?, ?, ?)
+  VALUES (NOW(), ?, ?, ?, ?)
   `,
       [
         'Zahtjev za povlačenje odobren',
         `Vaš zahtjev za povlačenje artefakta "${artifact.artefakt_naziv}" je odobren.`,
         artifact.artefakt_korisnik_sifra,
+        artifact.aukcija_sifra,
       ],
     )
 
@@ -2671,18 +2683,20 @@ app.put('/api/manager/withdrawal-requests/:artifactId/reject', verifyToken, asyn
 
     await db.query(
       `
-      INSERT INTO PI2_proj_OBAVIJEST (
-        obavijest_vrijeme,
-        obavijest_naslov,
-        obavijest_tekst,
-        obavijest_korisnik_sifra
-      )
-      VALUES (NOW(), ?, ?, ?)
-      `,
+  INSERT INTO PI2_proj_OBAVIJEST (
+    obavijest_vrijeme,
+    obavijest_naslov,
+    obavijest_tekst,
+    obavijest_korisnik_sifra,
+    obavijest_aukcija_sifra
+  )
+  VALUES (NOW(), ?, ?, ?, ?)
+  `,
       [
-        'Zahtjev za povlačenje odbijen',
-        `Vaš zahtjev za povlačenje artefakta "${artifact.artefakt_naziv}" je odbijen.`,
+        'Zahtjev za povlačenje odobren',
+        `Vaš zahtjev za povlačenje artefakta "${artifact.artefakt_naziv}" je odobren.`,
         artifact.artefakt_korisnik_sifra,
+        artifact.aukcija_sifra,
       ],
     )
 

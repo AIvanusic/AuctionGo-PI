@@ -158,7 +158,21 @@
           flat
           bordered
           :pagination="{ rowsPerPage: 5 }"
-        />
+        >
+          <template v-slot:body-cell-detalji="props">
+            <q-td :props="props">
+              <q-btn
+                v-if="props.row.obavijest_aukcija_sifra"
+                color="primary"
+                label="Detalji"
+                no-caps
+                size="sm"
+                @click="openAuction({ aukcija_sifra: props.row.obavijest_aukcija_sifra })"
+              />
+              <span v-else>-</span>
+            </q-td>
+          </template>
+        </q-table>
       </div>
 
       <div class="q-mt-xl">
@@ -300,6 +314,15 @@
         </p>
 
         <p>
+          <strong>Vrijeme aukcije:</strong>
+          <template v-if="selectedContract.aukcija_pocetak && selectedContract.aukcija_kraj">
+            {{ formatDateTime(selectedContract.aukcija_pocetak) }} -
+            {{ formatDateTime(selectedContract.aukcija_kraj) }}
+          </template>
+          <template v-else> - </template>
+        </p>
+
+        <p>
           <strong>Konačna cijena:</strong>
           {{ formatPrice(selectedContract.aukcija_cijena_konacna) }}
         </p>
@@ -308,6 +331,89 @@
           Kupac se obvezuje platiti ugovoreni iznos, a prodavatelj isporučiti artefakt u stanju
           opisanom u aukciji.
         </p>
+
+        <q-separator class="q-my-md" />
+
+        <div class="text-subtitle1 text-weight-medium q-mb-sm">Dnevnik aktivnosti</div>
+
+        <q-list dense bordered class="rounded-borders text-caption">
+          <q-item v-if="selectedContract.aukcija_ugovor === 'da'">
+            <q-item-section avatar>
+              <q-icon name="check_circle" color="positive" />
+            </q-item-section>
+            <q-item-section> Ugovor je kreiran. </q-item-section>
+          </q-item>
+
+          <q-item v-if="selectedContract.aukcija_ugovor_kupac_prihvatio === 'da'">
+            <q-item-section avatar>
+              <q-icon name="check_circle" color="positive" />
+            </q-item-section>
+            <q-item-section> Kupac je prihvatio ugovor. </q-item-section>
+          </q-item>
+
+          <q-item v-if="selectedContract.aukcija_ugovor_prodavatelj_prihvatio === 'da'">
+            <q-item-section avatar>
+              <q-icon name="check_circle" color="positive" />
+            </q-item-section>
+            <q-item-section> Prodavatelj je prihvatio ugovor. </q-item-section>
+          </q-item>
+
+          <q-item v-if="selectedContract.aukcija_kupac_uplatio === 'uplatio'">
+            <q-item-section avatar>
+              <q-icon name="check_circle" color="positive" />
+            </q-item-section>
+            <q-item-section> Kupac je potvrdio uplatu. </q-item-section>
+          </q-item>
+
+          <q-item v-if="selectedContract.aukcija_ugovor_potvrdaplacanja === 'placeno'">
+            <q-item-section avatar>
+              <q-icon name="check_circle" color="positive" />
+            </q-item-section>
+            <q-item-section> Prodavatelj je potvrdio primitak uplate. </q-item-section>
+          </q-item>
+
+          <q-item v-if="selectedContract.aukcija_ugovor_potvrdaisporuke === 'isporuceno'">
+            <q-item-section avatar>
+              <q-icon name="check_circle" color="positive" />
+            </q-item-section>
+            <q-item-section> Prodavatelj je potvrdio isporuku artefakta. </q-item-section>
+          </q-item>
+
+          <q-item v-if="selectedContract.aukcija_kupac_preuzeo === 'preuzeo'">
+            <q-item-section avatar>
+              <q-icon name="check_circle" color="positive" />
+            </q-item-section>
+            <q-item-section> Kupac je potvrdio primitak artefakta. </q-item-section>
+          </q-item>
+
+          <q-item v-if="selectedContract.aukcija_ugovor_artefaktodgovara">
+            <q-item-section avatar>
+              <q-icon
+                :name="
+                  selectedContract.aukcija_ugovor_artefaktodgovara === 'odgovara opisu'
+                    ? 'check_circle'
+                    : 'warning'
+                "
+                :color="
+                  selectedContract.aukcija_ugovor_artefaktodgovara === 'odgovara opisu'
+                    ? 'positive'
+                    : 'negative'
+                "
+              />
+            </q-item-section>
+            <q-item-section>
+              Artefakt:
+              {{ selectedContract.aukcija_ugovor_artefaktodgovara }}.
+            </q-item-section>
+          </q-item>
+
+          <q-item v-if="selectedContract.aukcija_statusend === 'transakcija zavrsena'">
+            <q-item-section avatar>
+              <q-icon name="verified" color="positive" />
+            </q-item-section>
+            <q-item-section> Voditelj je zaključio transakciju. </q-item-section>
+          </q-item>
+        </q-list>
 
         <q-btn
           v-if="
@@ -581,6 +687,23 @@ const artifactColumns = [
     sortable: true,
   },
   {
+    name: 'aukcija_vrijeme',
+    label: 'Vrijeme aukcije',
+    field: (row) => {
+      if (!row.aukcija_pocetak) return '-'
+
+      const pocetak = formatDateTime(row.aukcija_pocetak)
+
+      if (!row.aukcija_kraj) {
+        return `${pocetak} -`
+      }
+
+      return `${pocetak} - ${formatDateTime(row.aukcija_kraj)}`
+    },
+    align: 'left',
+    sortable: true,
+  },
+  {
     name: 'ugovor',
     label: 'Ugovor',
     field: 'aukcija_ugovor',
@@ -778,6 +901,13 @@ const notificationColumns = [
     sortable: true,
   },
   {
+    name: 'aukcija',
+    label: 'Aukcija',
+    field: 'aukcija_naziv',
+    align: 'left',
+    sortable: true,
+  },
+  {
     name: 'naslov',
     label: 'Naslov',
     field: 'obavijest_naslov',
@@ -789,6 +919,12 @@ const notificationColumns = [
     label: 'Obavijest',
     field: 'obavijest_tekst',
     align: 'left',
+  },
+  {
+    name: 'detalji',
+    label: 'Detalji',
+    field: 'detalji',
+    align: 'center',
   },
 ]
 

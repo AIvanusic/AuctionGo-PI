@@ -19,14 +19,14 @@
             v-if="selectedPhoto"
             :src="selectedPhoto"
             class="rounded-borders q-mb-md"
-            style="height: 280px; border: 1px solid #d4a017"
-            fit="cover"
+            style="height: 480px; border: 1px solid #d4a017"
+            fit="contain"
           />
 
           <div
             v-else
             class="flex flex-center rounded-borders q-mb-md"
-            style="height: 280px; background-color: #f9f6ef; border: 1px solid #d4a017"
+            style="height: 480px; background-color: #f9f6ef; border: 1px solid #d4a017"
           >
             Glavna fotografija
           </div>
@@ -36,7 +36,7 @@
               <q-img
                 :src="photo.fotografija_podatak"
                 style="height: 90px; border: 1px solid #d4a017; cursor: pointer"
-                fit="cover"
+                fit="contain"
                 class="rounded-borders"
                 @click="selectPhoto(photo)"
               />
