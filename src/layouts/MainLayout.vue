@@ -122,7 +122,23 @@ import { redirectByRole } from '../utils/redirectByRole'
 import axios from 'axios'
 import { socket } from 'src/services/socket'
 
-const user = ref(JSON.parse(localStorage.getItem('auctiongo_user')))
+function getStoredUser() {
+  try {
+    const storedUser = localStorage.getItem('auctiongo_user')
+
+    if (!storedUser || storedUser === 'undefined' || storedUser === '[object Object]') {
+      localStorage.removeItem('auctiongo_user')
+      return null
+    }
+
+    return JSON.parse(storedUser)
+  } catch {
+    localStorage.removeItem('auctiongo_user')
+    return null
+  }
+}
+
+const user = ref(getStoredUser())
 
 function goToUserArea() {
   redirectByRole(user.value)

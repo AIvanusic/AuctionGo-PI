@@ -181,6 +181,9 @@ app.post('/login', async (req, res) => {
       korisnik_prezime,
       korisnik_username,
       korisnik_email,
+      korisnik_adresa,
+      korisnik_mob,
+      korisnik_IBAN,
       korisnik_pass,
       korisnik_status,
       korisnik_kupac,
@@ -257,6 +260,102 @@ app.post('/complete-profile', verifyToken, async (req, res) => {
   res.json({
     message: 'Profil je uspješno dovršen.',
   })
+})
+
+app.get('/api/user/profile', verifyToken, async (req, res) => {
+  const userId = req.user.korisnik_sifra
+
+  try {
+    const [rows] = await db.query(
+      `
+      SELECT
+        korisnik_sifra,
+        korisnik_ime,
+        korisnik_prezime,
+        korisnik_username,
+        korisnik_email,
+        korisnik_adresa,
+        korisnik_mob,
+        korisnik_IBAN,
+        korisnik_status,
+        korisnik_verificiran
+      FROM PI2_proj_KORISNIK
+      WHERE korisnik_sifra = ?
+      `,
+      [userId],
+    )
+
+    if (rows.length === 0) {
+      return res.status(404).json({
+        message: 'Korisnik nije pronađen.',
+      })
+    }
+
+    res.json(rows[0])
+  } catch (error) {
+    console.error('Greška kod dohvaćanja profila:', error)
+
+    res.status(500).json({
+      message: 'Greška kod dohvaćanja profila.',
+    })
+  }
+})
+
+app.put('/api/user/profile', verifyToken, async (req, res) => {
+  const userId = req.user.korisnik_sifra
+  const { ime, prezime, email, adresa, mobitel, iban } = req.body
+
+  try {
+    await db.query(
+      `
+      UPDATE PI2_proj_KORISNIK
+      SET
+        korisnik_ime = ?,
+        korisnik_prezime = ?,
+        korisnik_email = ?,
+        korisnik_adresa = ?,
+        korisnik_mob = ?,
+        korisnik_IBAN = ?
+      WHERE korisnik_sifra = ?
+      `,
+      [ime, prezime, email, adresa, mobitel, iban, userId],
+    )
+
+    res.json({
+      message: 'Korisnički podaci su ažurirani.',
+    })
+  } catch (error) {
+    console.error('Greška kod ažuriranja profila:', error)
+
+    res.status(500).json({
+      message: 'Greška kod ažuriranja profila.',
+    })
+  }
+})
+
+app.put('/api/user/deactivate', verifyToken, async (req, res) => {
+  const userId = req.user.korisnik_sifra
+
+  try {
+    await db.query(
+      `
+      UPDATE PI2_proj_KORISNIK
+      SET korisnik_status = 'neaktivan'
+      WHERE korisnik_sifra = ?
+      `,
+      [userId],
+    )
+
+    res.json({
+      message: 'Korisnički račun je deaktiviran.',
+    })
+  } catch (error) {
+    console.error('Greška kod deaktivacije računa:', error)
+
+    res.status(500).json({
+      message: 'Greška kod deaktivacije računa.',
+    })
+  }
 })
 
 app.get('/categories', async (req, res) => {
@@ -1042,6 +1141,9 @@ app.get('/api/auctions', async (req, res) => {
         auk.aukcija_pocetak,
         auk.aukcija_kraj,
         auk.aukcija_status,
+        auk.aukcija_statusend,
+        kat.kategorija_sifra,
+        kat.kategorija_naziv,
         a.artefakt_naziv,
         a.artefakt_stanje,
         f.fotografija_podatak
@@ -1051,11 +1153,15 @@ app.get('/api/auctions', async (req, res) => {
       LEFT JOIN PI2_proj_ARTEFAKT_FOTOGRAFIJA f
         ON f.fotografija_artefakt_sifra = a.artefakt_sifra
         AND f.fotografija_redni_broj = 1
-      WHERE auk.aukcija_status IN ('ceka', 'prvi poziv', 'drugi poziv', 'zadnji poziv')
-        AND (
-          auk.aukcija_statusend IS NULL
-          OR auk.aukcija_statusend <> 'ponistena'
-        )
+      LEFT JOIN PI2_proj_KATEGORIJA kat
+       ON a.artefakt_kategorija_sifra = kat.kategorija_sifra
+      WHERE (
+        auk.aukcija_status IN ('ceka', 'prvi poziv', 'drugi poziv', 'zadnji poziv', 'zavrsena')
+      )
+      AND (
+        auk.aukcija_statusend IS NULL
+        OR auk.aukcija_statusend <> 'ponistena'
+      )
       ORDER BY auk.aukcija_kraj ASC
     `)
 

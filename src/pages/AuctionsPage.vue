@@ -4,12 +4,38 @@
       class="text-h5 text-dark q-pa-lg rounded-borders q-mb-lg"
       style="background-color: white; border-left: 5px solid #1e6b4c"
     >
-      Aktivne aukcije
+      {{ pageTitle }}
+      <q-tabs
+        v-model="activeTab"
+        dense
+        align="left"
+        class="text-dark q-mb-lg"
+        active-color="secondary"
+        indicator-color="primary"
+      >
+        <q-tab name="upcoming" label="Najavljene" no-caps />
+        <q-tab name="active" label="Aktivne" no-caps />
+        <q-tab name="finished" label="Završene" no-caps />
+      </q-tabs>
+
+      <div class="row q-mb-lg">
+        <div class="col-12 col-md-4">
+          <q-select
+            v-model="selectedCategory"
+            :options="categoryOptions"
+            label="Filtriraj po kategoriji"
+            outlined
+            emit-value
+            map-options
+            clearable
+          />
+        </div>
+      </div>
     </div>
 
     <div class="row q-col-gutter-lg">
       <div
-        v-for="auction in auctions"
+        v-for="auction in filteredAuctions"
         :key="auction.aukcija_sifra"
         class="col-12 col-sm-6 col-md-4"
       >
@@ -59,12 +85,64 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
 const auctions = ref([])
+const activeTab = ref('active')
+const selectedCategory = ref(null)
+
+const auctionsByTab = computed(() => {
+  const now = new Date()
+
+  if (activeTab.value === 'upcoming') {
+    return auctions.value.filter((auction) => new Date(auction.aukcija_pocetak) > now)
+  }
+
+  if (activeTab.value === 'finished') {
+    return auctions.value.filter(
+      (auction) =>
+        auction.aukcija_status === 'zavrsena' ||
+        auction.aukcija_statusend === 'uspjesno zavrsena' ||
+        auction.aukcija_statusend === 'bez ponuda',
+    )
+  }
+
+  return auctions.value.filter(
+    (auction) =>
+      new Date(auction.aukcija_pocetak) <= now &&
+      new Date(auction.aukcija_kraj) > now &&
+      auction.aukcija_status !== 'zavrsena',
+  )
+})
+
+const filteredAuctions = computed(() => {
+  if (!selectedCategory.value) {
+    return auctionsByTab.value
+  }
+
+  return auctionsByTab.value.filter(
+    (auction) => Number(auction.kategorija_sifra) === Number(selectedCategory.value),
+  )
+})
+
+const categoryOptions = computed(() => {
+  const categories = auctionsByTab.value
+    .filter((auction) => auction.kategorija_sifra)
+    .map((auction) => ({
+      label: auction.kategorija_naziv,
+      value: auction.kategorija_sifra,
+    }))
+
+  return [
+    { label: 'Sve kategorije', value: null },
+    ...categories.filter(
+      (category, index, self) => index === self.findIndex((item) => item.value === category.value),
+    ),
+  ]
+})
 
 function formatPrice(value) {
   return (
@@ -86,14 +164,17 @@ function openAuction(auction) {
 async function fetchAuctions() {
   try {
     const response = await axios.get('http://localhost:3000/api/auctions')
-
     auctions.value = response.data
-
-    console.log('Aukcije:', auctions.value)
   } catch (error) {
     console.error('Greška kod dohvaćanja aukcija:', error)
   }
 }
+
+const pageTitle = computed(() => {
+  if (activeTab.value === 'upcoming') return 'Najavljene aukcije'
+  if (activeTab.value === 'finished') return 'Završene aukcije'
+  return 'Aktivne aukcije'
+})
 
 onMounted(() => {
   fetchAuctions()

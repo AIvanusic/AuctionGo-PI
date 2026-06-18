@@ -17,6 +17,17 @@
         </template>
       </div>
 
+      <q-btn
+        color="primary"
+        text-color="dark"
+        label="Uredite podatke"
+        no-caps
+        rounded
+        unelevated
+        class="q-mt-md"
+        @click="editProfileDialog = true"
+      />
+
       <div class="row q-gutter-md q-mb-lg">
         <q-btn
           color="primary"
@@ -630,6 +641,34 @@
       </q-card-actions>
     </q-card>
   </q-dialog>
+
+  <q-dialog v-model="editProfileDialog">
+    <q-card style="min-width: 500px">
+      <q-card-section>
+        <div class="text-h6">Uređivanje podataka</div>
+      </q-card-section>
+
+      <q-card-section>
+        <q-input v-model="profileForm.ime" label="Ime" outlined class="q-mb-md" />
+
+        <q-input v-model="profileForm.prezime" label="Prezime" outlined class="q-mb-md" />
+
+        <q-input v-model="profileForm.email" label="Email" outlined class="q-mb-md" />
+
+        <q-input v-model="profileForm.adresa" label="Adresa" outlined class="q-mb-md" />
+
+        <q-input v-model="profileForm.mobitel" label="Mobitel" outlined class="q-mb-md" />
+
+        <q-input v-model="profileForm.iban" label="IBAN" outlined />
+      </q-card-section>
+
+      <q-card-actions align="right">
+        <q-btn flat label="Odustanite" v-close-popup />
+
+        <q-btn color="primary" text-color="dark" label="Spremite" @click="saveProfileChanges" />
+      </q-card-actions>
+    </q-card>
+  </q-dialog>
 </template>
 
 <script setup>
@@ -639,7 +678,54 @@ import { socket } from 'src/services/socket'
 import { onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 
-const user = JSON.parse(localStorage.getItem('auctiongo_user'))
+const user = ref(JSON.parse(localStorage.getItem('auctiongo_user')))
+
+const editProfileDialog = ref(false)
+
+const profileForm = ref({
+  ime: user.value?.korisnik_ime || '',
+  prezime: user.value?.korisnik_prezime || '',
+  email: user.value?.korisnik_email || '',
+  adresa: user.value?.korisnik_adresa || '',
+  mobitel: user.value?.korisnik_mob || '',
+  iban: user.value?.korisnik_IBAN || '',
+})
+
+async function saveProfileChanges() {
+  try {
+    const token = localStorage.getItem('auctiongo_token')
+
+    const response = await axios.put(
+      'http://localhost:3000/api/user/profile',
+      {
+        ime: profileForm.value.ime,
+        prezime: profileForm.value.prezime,
+        email: profileForm.value.email,
+        adresa: profileForm.value.adresa,
+        mobitel: profileForm.value.mobitel,
+        iban: profileForm.value.iban,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    )
+
+    user.value = {
+      ...user.value,
+      ...response.data.user,
+    }
+
+    localStorage.setItem('auctiongo_user', JSON.stringify(user.value))
+
+    editProfileDialog.value = false
+
+    console.log('Profil ažuriran.')
+  } catch (error) {
+    console.error('Greška kod ažuriranja profila:', error)
+  }
+}
 
 const artifacts = ref([])
 
@@ -1180,7 +1266,7 @@ async function fetchMyReviews() {
 
     myReviews.value = response.data
     console.log('Moje primljene recenzije:', myReviews.value)
-    console.log('Prijavljeni korisnik:', user.korisnik_sifra)
+    console.log('Prijavljeni korisnik:', user.value.korisnik_sifra)
   } catch (error) {
     console.error('Greška kod dohvaćanja mojih recenzija:', error)
   }
