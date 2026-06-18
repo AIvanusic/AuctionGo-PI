@@ -1172,6 +1172,259 @@ app.get('/api/auctions/:id', async (req, res) => {
 const LAST_SECOND_WINDOW_MS = 60 * 1000
 const AUCTION_EXTENSION_SECONDS = 120
 
+function calculateBidStep(currentPrice) {
+  return Math.max(5, Math.ceil(Number(currentPrice) * 0.05))
+}
+
+async function processAutobidsForAuction(auctionId) {
+  const [leaderRows] = await db.query(
+    `
+    SELECT
+      ponuda_korisnik_sifra,
+      ponuda_cijena_ponudjena
+    FROM PI2_proj_PONUDA
+    WHERE ponuda_aukcija_sifra = ?
+    ORDER BY ponuda_cijena_ponudjena DESC, ponuda_vrijeme DESC
+    LIMIT 1
+    `,
+    [auctionId],
+  )
+
+  const currentLeader = leaderRows[0]
+
+  if (!currentLeader) {
+    return null
+  }
+
+  const currentPrice = Number(currentLeader.ponuda_cijena_ponudjena)
+
+  const [autobids] = await db.query(
+    `
+    SELECT
+      autobid_korisnik_sifra,
+      autobid_maksimalni_iznos
+    FROM PI2_proj_AUTOBID
+    WHERE autobid_aukcija_sifra = ?
+      AND autobid_aktivan = 'da'
+      AND autobid_maksimalni_iznos > ?
+    ORDER BY autobid_maksimalni_iznos DESC, autobid_vrijeme ASC
+    `,
+    [auctionId, currentPrice],
+  )
+
+  if (autobids.length === 0) {
+    return null
+  }
+
+  const bestAutobid = autobids[0]
+  const bestUserId = bestAutobid.autobid_korisnik_sifra
+  const bestMaxAmount = Number(bestAutobid.autobid_maksimalni_iznos)
+
+  const competingAmounts = [
+    currentPrice,
+    ...autobids
+      .filter((autobid) => Number(autobid.autobid_korisnik_sifra) !== Number(bestUserId))
+      .map((autobid) => Number(autobid.autobid_maksimalni_iznos)),
+  ]
+
+  const strongestCompetitorAmount = Math.max(...competingAmounts)
+  const bidStep = calculateBidStep(strongestCompetitorAmount)
+
+  const autobidPrice = Math.min(bestMaxAmount, strongestCompetitorAmount + bidStep)
+
+  if (autobidPrice <= currentPrice) {
+    return null
+  }
+
+  const [lastBids] = await db.query(
+    `
+    SELECT COUNT(*) AS broj_ponuda
+    FROM PI2_proj_PONUDA
+    WHERE ponuda_aukcija_sifra = ?
+    `,
+    [auctionId],
+  )
+
+  const nextBidNumber = lastBids[0].broj_ponuda + 1
+
+  await db.query(
+    `
+    INSERT INTO PI2_proj_PONUDA (
+      ponuda_rednibroj,
+      ponuda_vrijeme,
+      ponuda_cijena_ponudjena,
+      ponuda_korisnik_sifra,
+      ponuda_aukcija_sifra
+    )
+    VALUES (?, NOW(), ?, ?, ?)
+    `,
+    [String(nextBidNumber), autobidPrice, bestUserId, auctionId],
+  )
+
+  await db.query(
+    `
+    UPDATE PI2_proj_AUKCIJA
+    SET aukcija_cijena_trenutna = ?
+    WHERE aukcija_sifra = ?
+    `,
+    [autobidPrice, auctionId],
+  )
+
+  if (Number(currentLeader.ponuda_korisnik_sifra) !== Number(bestUserId)) {
+    await db.query(
+      `
+      INSERT INTO PI2_proj_OBAVIJEST (
+        obavijest_vrijeme,
+        obavijest_naslov,
+        obavijest_tekst,
+        obavijest_korisnik_sifra,
+        obavijest_aukcija_sifra
+      )
+      VALUES (NOW(), ?, ?, ?, ?)
+      `,
+      [
+        'Nadmašeni ste',
+        'Vaša ponuda je automatski nadmašena autobidom drugog korisnika.',
+        currentLeader.ponuda_korisnik_sifra,
+        auctionId,
+      ],
+    )
+
+    io.emit('notification-created', {
+      userId: currentLeader.ponuda_korisnik_sifra,
+    })
+  }
+
+  return {
+    userId: bestUserId,
+    price: autobidPrice,
+  }
+}
+
+app.post('/api/auctions/:id/autobid', verifyToken, async (req, res) => {
+  const { id } = req.params
+  const userId = req.user.korisnik_sifra
+  const { maksimalniIznos } = req.body
+
+  try {
+    const maxAmount = Number(maksimalniIznos)
+
+    if (!maxAmount || maxAmount <= 0) {
+      return res.status(400).json({
+        message: 'Maksimalni iznos autobida mora biti veći od 0.',
+      })
+    }
+
+    const [auctions] = await db.query(
+      `
+      SELECT
+        auk.aukcija_sifra,
+        auk.aukcija_cijena_trenutna,
+        auk.aukcija_status,
+        auk.aukcija_statusend,
+        a.artefakt_korisnik_sifra
+      FROM PI2_proj_AUKCIJA auk
+      JOIN PI2_proj_ARTEFAKT a
+        ON auk.aukcija_artefakt_sifra = a.artefakt_sifra
+      WHERE auk.aukcija_sifra = ?
+      `,
+      [id],
+    )
+
+    if (auctions.length === 0) {
+      return res.status(404).json({
+        message: 'Aukcija nije pronađena.',
+      })
+    }
+
+    const auction = auctions[0]
+
+    if (Number(auction.artefakt_korisnik_sifra) === Number(userId)) {
+      return res.status(400).json({
+        message: 'Ne možete postaviti autobid na vlastiti artefakt.',
+      })
+    }
+
+    if (auction.aukcija_statusend === 'ponistena' || auction.aukcija_status === 'zavrsena') {
+      return res.status(400).json({
+        message: 'Autobid nije moguće postaviti na završenu ili poništenu aukciju.',
+      })
+    }
+
+    if (maxAmount <= Number(auction.aukcija_cijena_trenutna)) {
+      return res.status(400).json({
+        message: 'Maksimalni iznos mora biti veći od trenutne cijene.',
+      })
+    }
+
+    await db.query(
+      `
+      INSERT INTO PI2_proj_AUTOBID (
+        autobid_aukcija_sifra,
+        autobid_korisnik_sifra,
+        autobid_maksimalni_iznos,
+        autobid_aktivan
+      )
+      VALUES (?, ?, ?, 'da')
+      ON DUPLICATE KEY UPDATE
+        autobid_maksimalni_iznos = VALUES(autobid_maksimalni_iznos),
+        autobid_aktivan = 'da',
+        autobid_vrijeme = CURRENT_TIMESTAMP
+      `,
+      [id, userId, maxAmount],
+    )
+
+    const autobidResult = await processAutobidsForAuction(id)
+
+    if (autobidResult) {
+      io.emit('bid-updated', {
+        auctionId: id,
+        newPrice: autobidResult.price,
+      })
+    }
+
+    res.json({
+      message: 'Autobid je spremljen.',
+    })
+  } catch (error) {
+    console.error('Greška kod spremanja autobida:', error)
+
+    res.status(500).json({
+      message: 'Greška kod spremanja autobida.',
+    })
+  }
+})
+
+app.get('/api/auctions/:id/autobid/my', verifyToken, async (req, res) => {
+  const { id } = req.params
+  const userId = req.user.korisnik_sifra
+
+  try {
+    const [rows] = await db.query(
+      `
+      SELECT
+        autobid_sifra,
+        autobid_maksimalni_iznos,
+        autobid_aktivan
+      FROM PI2_proj_AUTOBID
+      WHERE autobid_aukcija_sifra = ?
+        AND autobid_korisnik_sifra = ?
+        AND autobid_aktivan = 'da'
+      LIMIT 1
+      `,
+      [id, userId],
+    )
+
+    res.json(rows[0] || null)
+  } catch (error) {
+    console.error('Greška kod dohvaćanja autobida:', error)
+
+    res.status(500).json({
+      message: 'Greška kod dohvaćanja autobida.',
+    })
+  }
+})
+
 app.post('/api/auctions/:id/bids', verifyToken, async (req, res) => {
   const { id } = req.params
   const userId = req.user.korisnik_sifra
@@ -1288,7 +1541,8 @@ app.post('/api/auctions/:id/bids', verifyToken, async (req, res) => {
       obavijest_korisnik_sifra,
       obavijest_aukcija_sifra
     )
-    // VALUES (NOW(), ?, ?, ?, ?)
+
+    VALUES (NOW(), ?, ?, ?, ?)
     `,
         [
           'Nadmašeni ste',
@@ -1310,6 +1564,8 @@ app.post('/api/auctions/:id/bids', verifyToken, async (req, res) => {
       `,
       [bidPrice, id],
     )
+
+    await processAutobidsForAuction(id)
 
     const remainingTime = new Date(auction.aukcija_kraj) - new Date()
 
@@ -1507,7 +1763,7 @@ async function updateAuctionStatus(auctionId) {
   return newStatus
 }
 
-async function createNotification(userId, title, text) {
+async function createNotification(userId, title, text, auctionId = null) {
   await db.query(
     `
     INSERT INTO PI2_proj_OBAVIJEST (
@@ -1515,11 +1771,12 @@ async function createNotification(userId, title, text) {
       obavijest_naslov,
       obavijest_tekst,
       obavijest_procitana,
-      obavijest_korisnik_sifra
+      obavijest_korisnik_sifra,
+      obavijest_aukcija_sifra
     )
-    VALUES (NOW(), ?, ?, 'ne', ?)
+    VALUES (NOW(), ?, ?, 'ne', ?, ?)
     `,
-    [title, text, userId],
+    [title, text, userId, auctionId],
   )
 }
 
@@ -1616,12 +1873,14 @@ async function closeAuctionIfEnded(auctionId) {
     winningBid.ponuda_korisnik_sifra,
     'Pobijedili ste na aukciji',
     `Pobijedili ste na aukciji s ponudom od ${formattedPrice} €.`,
+    auctionId,
   )
 
   await createNotification(
     auction.artefakt_korisnik_sifra,
     'Artefakt je prodan',
     `Vaš artefakt prodan je za ${formattedPrice} €.`,
+    auctionId,
   )
 
   for (const bidder of otherBidders) {
@@ -1629,6 +1888,7 @@ async function closeAuctionIfEnded(auctionId) {
       bidder.ponuda_korisnik_sifra,
       'Aukcija je završena',
       'Aukcija je završena. Niste imali najvišu ponudu.',
+      auctionId,
     )
   }
   return 'uspjesno zavrsena'

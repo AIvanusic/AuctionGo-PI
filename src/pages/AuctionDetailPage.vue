@@ -173,6 +173,7 @@
           </div>
 
           <div v-if="isAuctionEnded" class="text-grey-8 q-mb-md">Aukcija je završena.</div>
+
           <div class="col-auto">
             <div v-if="isLeadingBidder" class="text-positive q-mb-md">
               Trenutno imate vodeću ponudu.
@@ -191,6 +192,34 @@
               @click="placeBid"
               :disable="isAuctionEnded"
             />
+            <div class="q-mt-sm">
+              <q-btn
+                v-if="myAutobid"
+                color="primary"
+                text-color="dark"
+                label="Promijeni autobid"
+                no-caps
+                rounded
+                unelevated
+                @click="autobidDialog = true"
+              />
+
+              <q-btn
+                v-else
+                color="primary"
+                text-color="dark"
+                label="Postavi autobid"
+                no-caps
+                rounded
+                unelevated
+                @click="autobidDialog = true"
+              />
+
+              <div v-if="myAutobid" class="text-secondary text-weight-medium q-mt-sm">
+                ✓ Autobid aktivan do
+                {{ formatPrice(myAutobid.autobid_maksimalni_iznos) }}
+              </div>
+            </div>
           </div>
         </div>
       </q-card>
@@ -249,6 +278,29 @@
       </q-card-actions>
     </q-card>
   </q-dialog>
+
+  <q-dialog v-model="autobidDialog">
+    <q-card style="min-width: 350px">
+      <q-card-section>
+        <div class="text-h6">Postavi autobid</div>
+      </q-card-section>
+
+      <q-card-section>
+        <q-input
+          v-model="autobidMaxAmount"
+          type="number"
+          label="Maksimalni iznos"
+          suffix="€"
+          outlined
+        />
+      </q-card-section>
+
+      <q-card-actions align="right">
+        <q-btn flat label="Odustani" color="dark" v-close-popup />
+        <q-btn label="Spremi" color="primary" @click="saveAutobid" />
+      </q-card-actions>
+    </q-card>
+  </q-dialog>
 </template>
 
 <script setup>
@@ -257,6 +309,9 @@ import { useRoute } from 'vue-router'
 import axios from 'axios'
 import { Notify } from 'quasar'
 import { socket } from 'src/services/socket'
+import { useQuasar } from 'quasar'
+
+const $q = useQuasar()
 
 const route = useRoute()
 
@@ -457,9 +512,71 @@ async function openSellerReviews() {
   }
 }
 
+const autobidDialog = ref(false)
+const autobidMaxAmount = ref(null)
+
+async function saveAutobid() {
+  try {
+    const token = localStorage.getItem('auctiongo_token')
+
+    const response = await axios.post(
+      `http://localhost:3000/api/auctions/${auction.value.aukcija_sifra}/autobid`,
+      {
+        maksimalniIznos: autobidMaxAmount.value,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    )
+
+    $q.notify({
+      color: 'positive',
+      message: response.data.message,
+      icon: 'check',
+    })
+
+    autobidDialog.value = false
+    autobidMaxAmount.value = null
+
+    await fetchMyAutobid()
+  } catch (error) {
+    $q.notify({
+      color: 'negative',
+      message: error.response?.data?.message || 'Greška kod spremanja autobida.',
+      icon: 'warning',
+    })
+  }
+}
+
+const myAutobid = ref(null)
+
+async function fetchMyAutobid() {
+  try {
+    const token = localStorage.getItem('auctiongo_token')
+
+    const response = await axios.get(
+      `http://localhost:3000/api/auctions/${route.params.id}/autobid/my`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    )
+
+    console.log('AUTOBID:', response.data)
+
+    myAutobid.value = response.data
+  } catch (error) {
+    console.error('Greška kod dohvaćanja autobida:', error)
+  }
+}
+
 onMounted(() => {
   fetchAuction()
   fetchBids()
+  fetchMyAutobid()
 
   countdownInterval = setInterval(() => {
     updateCountdown()

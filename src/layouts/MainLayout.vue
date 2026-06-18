@@ -84,6 +84,15 @@
                   </q-item-section>
                 </q-item>
               </q-list>
+              <q-separator />
+
+              <q-item clickable @click="$router.push('/user-profile')">
+                <q-item-section>
+                  <q-item-label class="text-primary text-weight-medium">
+                    Prikaži sve obavijesti
+                  </q-item-label>
+                </q-item-section>
+              </q-item>
             </q-menu>
           </q-btn>
 
