@@ -153,7 +153,7 @@
 
           <div class="col-12 col-md-4">
             <q-card flat bordered class="q-pa-md">
-              <div class="text-body2 text-grey-8">Završava za</div>
+              <div class="text-body2 text-grey-8">{{ countdownLabel }}</div>
               <div class="text-h6 text-dark">
                 {{ timeLeft }}
               </div>
@@ -208,7 +208,7 @@
                 v-else
                 color="primary"
                 text-color="dark"
-                label="Postavi autobid"
+                label="Postavite autobid"
                 no-caps
                 rounded
                 unelevated
@@ -461,34 +461,50 @@ const isLeadingBidder = computed(() => {
 })
 
 const timeLeft = ref('')
+const countdownLabel = ref('Završava za')
 let countdownInterval
 const auctionEnded = ref(false)
 
 function updateCountdown() {
-  if (!auction.value?.aukcija_kraj) {
+  if (!auction.value?.aukcija_pocetak || !auction.value?.aukcija_kraj) {
+    countdownLabel.value = 'Vrijeme aukcije'
     timeLeft.value = '-'
     return
   }
 
+  const startDate = new Date(auction.value.aukcija_pocetak)
   const endDate = new Date(auction.value.aukcija_kraj)
   const now = new Date()
 
-  const diff = endDate - now
-
-  if (diff <= 0) {
+  if (now >= endDate) {
+    countdownLabel.value = 'Status aukcije'
     timeLeft.value = 'Aukcija je završena'
     auctionEnded.value = true
     return
   }
 
+  let diff
+
+  if (now < startDate) {
+    countdownLabel.value = `Počinje: ${startDate.toLocaleString('hr-HR', {
+      day: 'numeric',
+      month: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })}`
+
+    diff = startDate - now
+  } else {
+    countdownLabel.value = 'Završava za'
+    diff = endDate - now
+  }
+
   auctionEnded.value = false
 
   const days = Math.floor(diff / (1000 * 60 * 60 * 24))
-
   const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
-
   const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
-
   const seconds = Math.floor((diff % (1000 * 60)) / 1000)
 
   timeLeft.value = `${days}d ${hours}h ${minutes}m ${seconds}s`

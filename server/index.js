@@ -347,7 +347,8 @@ app.put('/api/user/deactivate', verifyToken, async (req, res) => {
     )
 
     res.json({
-      message: 'Korisnički račun je deaktiviran.',
+      message:
+        'Zahtjev je evidentiran. Račun će ostati onemogućen dok administrator ne provjeri status obaveza.',
     })
   } catch (error) {
     console.error('Greška kod deaktivacije računa:', error)
@@ -558,6 +559,41 @@ app.get('/api/admin/users', verifyToken, async (req, res) => {
   } catch (error) {
     console.error('Greška kod dohvaćanja korisnika za admina:', error)
     res.status(500).json({ message: 'Greška na serveru.' })
+  }
+})
+
+app.put('/api/admin/users/:userId/status', verifyToken, async (req, res) => {
+  const { userId } = req.params
+  const { status } = req.body
+
+  try {
+    if (!['aktivan', 'neaktivan'].includes(status)) {
+      return res.status(400).json({
+        message: 'Neispravan status korisnika.',
+      })
+    }
+
+    await db.query(
+      `
+      UPDATE PI2_proj_KORISNIK
+      SET korisnik_status = ?
+      WHERE korisnik_sifra = ?
+      `,
+      [status, userId],
+    )
+
+    res.json({
+      message:
+        status === 'aktivan'
+          ? 'Korisnički račun je aktiviran.'
+          : 'Korisnički račun je deaktiviran.',
+    })
+  } catch (error) {
+    console.error('Greška kod promjene statusa korisnika:', error)
+
+    res.status(500).json({
+      message: 'Greška kod promjene statusa korisnika.',
+    })
   }
 })
 

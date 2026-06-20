@@ -17,21 +17,32 @@
         </template>
       </div>
 
-      <q-btn
-        color="primary"
-        text-color="dark"
-        label="Uredite podatke"
-        no-caps
-        rounded
-        unelevated
-        class="q-mt-md"
-        @click="editProfileDialog = true"
-      />
-
-      <div class="row q-gutter-md q-mb-lg">
+      <div class="row q-gutter-md q-mt-md">
         <q-btn
           color="primary"
           text-color="dark"
+          label="Uredite osobne podatke"
+          no-caps
+          rounded
+          unelevated
+          @click="editProfileDialog = true"
+        />
+
+        <q-btn
+          color="brown-7"
+          text-color="white"
+          label="Zatražite deaktivaciju računa"
+          no-caps
+          rounded
+          unelevated
+          @click="requestDeactivation"
+        />
+      </div>
+
+      <div class="row q-gutter-md q-mb-lg">
+        <q-btn
+          color="secondary"
+          text-color="white"
           label="Prijavite artefakt"
           no-caps
           unelevated
@@ -40,8 +51,8 @@
           class="q-mt-lg"
         />
         <q-btn
-          color="primary"
-          text-color="dark"
+          color="secondary"
+          text-color="white"
           label="Katalog aukcija"
           no-caps
           rounded
@@ -50,6 +61,7 @@
           class="q-mt-lg"
         />
       </div>
+
       <div class="q-mt-xl">
         <div class="q-mb-lg">
           <div class="text-h6 text-dark">Moja prodavateljska ocjena</div>
@@ -727,8 +739,42 @@ async function saveProfileChanges() {
   }
 }
 
-const artifacts = ref([])
+async function requestDeactivation() {
+  const confirmed = confirm('Jeste li sigurni da želite poslati zahtjev za deaktivaciju računa?')
 
+  if (!confirmed) {
+    return
+  }
+
+  try {
+    const token = localStorage.getItem('auctiongo_token')
+
+    const response = await axios.put(
+      'http://localhost:3000/api/user/deactivate',
+      {},
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    )
+
+    alert(response.data.message)
+
+    user.value = {
+      ...user.value,
+      korisnik_status: 'neaktivan',
+    }
+
+    localStorage.setItem('auctiongo_user', JSON.stringify(user.value))
+  } catch (error) {
+    console.error('Greška kod slanja zahtjeva za deaktivaciju:', error)
+
+    alert('Zahtjev nije moguće poslati.')
+  }
+}
+
+const artifacts = ref([])
 const artifactColumns = [
   {
     name: 'naziv',

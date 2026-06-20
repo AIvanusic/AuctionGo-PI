@@ -77,7 +77,37 @@
           bordered
           :pagination="{ rowsPerPage: 10 }"
           :rows-per-page-options="[5, 10, 20, 50, 0]"
-        />
+        >
+          <template v-slot:body-cell-actions="props">
+            <q-td :props="props">
+              <q-btn
+                v-if="props.row.korisnik_status === 'aktivan'"
+                color="brown-7"
+                text-color="white"
+                label="Deaktivirajte"
+                size="sm"
+                no-caps
+                unelevated
+                rounded
+                @click="changeUserStatus(props.row, 'neaktivan')"
+              />
+
+              <q-btn
+                v-else-if="props.row.korisnik_status === 'neaktivan'"
+                color="secondary"
+                text-color="white"
+                label="Aktivirajte"
+                size="sm"
+                no-caps
+                unelevated
+                rounded
+                @click="changeUserStatus(props.row, 'aktivan')"
+              />
+
+              <span v-else class="text-grey-7"> - </span>
+            </q-td>
+          </template>
+        </q-table>
       </div>
     </div>
 
@@ -261,6 +291,12 @@ const userColumns = [
     align: 'left',
     sortable: true,
   },
+  {
+    name: 'actions',
+    label: 'Akcija',
+    align: 'center',
+    field: 'actions',
+  },
 ]
 
 const pendingAppraisalsCount = computed(() => {
@@ -298,6 +334,39 @@ async function fetchUsers() {
     console.log('Korisnici za admina:', users.value)
   } catch (error) {
     console.error('Greška kod dohvaćanja korisnika:', error)
+  }
+}
+
+async function changeUserStatus(user, newStatus) {
+  const confirmed = confirm(
+    `Želite li promijeniti status korisnika ${user.korisnik_username} u "${newStatus}"?`,
+  )
+
+  if (!confirmed) {
+    return
+  }
+
+  const token = localStorage.getItem('auctiongo_token')
+
+  try {
+    const response = await axios.put(
+      `http://localhost:3000/api/admin/users/${user.korisnik_sifra}/status`,
+      {
+        status: newStatus,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    )
+
+    alert(response.data.message)
+
+    await fetchUsers()
+  } catch (error) {
+    console.error('Greška kod promjene statusa korisnika:', error)
+    alert('Status korisnika nije promijenjen.')
   }
 }
 

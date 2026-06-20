@@ -11,7 +11,7 @@
       />
 
       <div>
-        <div class="text-h2 text-dark">AuctionGO</div>
+        <div class="text-h2 text-dark">AuctionGo!</div>
 
         <div class="text-subtitle1 text-dark">Digitalne aukcije u stvarnom vremenu</div>
       </div>
@@ -41,6 +41,57 @@
       </div>
     </div>
 
+    <div class="q-mt-md" style="width: 100%; max-width: 1200px">
+      <div
+        class="text-h5 text-dark q-pa-lg rounded-borders q-mb-md"
+        style="background-color: #ffffff; border-left: 5px solid #d4a017"
+      >
+        Kako funkcionira AuctionGo!?
+      </div>
+
+      <div class="row q-col-gutter-md">
+        <div class="col-12 col-sm-6 col-md-3">
+          <q-card flat bordered class="q-pa-md full-height text-center">
+            <q-icon name="inventory_2" size="42px" color="primary" />
+            <div class="text-h6 text-dark q-mt-sm">Prijava artefakta</div>
+            <div class="text-body2 text-grey-8 q-mt-sm">
+              Korisnik unosi podatke, opis i fotografije artefakta.
+            </div>
+          </q-card>
+        </div>
+
+        <div class="col-12 col-sm-6 col-md-3">
+          <q-card flat bordered class="q-pa-md full-height text-center">
+            <q-icon name="manage_search" size="42px" color="primary" />
+            <div class="text-h6 text-dark q-mt-sm">Procjena vrijednosti</div>
+            <div class="text-body2 text-grey-8 q-mt-sm">
+              Procjenitelj pregledava artefakt i unosi stručnu procjenu.
+            </div>
+          </q-card>
+        </div>
+
+        <div class="col-12 col-sm-6 col-md-3">
+          <q-card flat bordered class="q-pa-md full-height text-center">
+            <q-icon name="gavel" size="42px" color="primary" />
+            <div class="text-h6 text-dark q-mt-sm">Aukcija uživo</div>
+            <div class="text-body2 text-grey-8 q-mt-sm">
+              Kupci licitiraju ručno ili koriste automatsko licitiranje.
+            </div>
+          </q-card>
+        </div>
+
+        <div class="col-12 col-sm-6 col-md-3">
+          <q-card flat bordered class="q-pa-md full-height text-center">
+            <q-icon name="description" size="42px" color="primary" />
+            <div class="text-h6 text-dark q-mt-sm">Kupoprodajni ugovor</div>
+            <div class="text-body2 text-grey-8 q-mt-sm">
+              Nakon završetka aukcije sustav podržava kupoprodajni postupak.
+            </div>
+          </q-card>
+        </div>
+      </div>
+    </div>
+
     <div class="row q-col-gutter-xl q-mt-lg" style="width: 100%; max-width: 1200px">
       <!-- Aktivne aukcije -->
       <div class="col-12 col-md-8">
@@ -48,149 +99,150 @@
           class="text-h5 text-dark q-pa-lg rounded-borders q-mb-md"
           style="background-color: #ffffff; border-left: 5px solid #1e6b4c"
         >
-          Aktivne aukcije
+          Trenutno u ponudi:
         </div>
-        <q-card class="q-mb-lg">
+
+        <q-card v-for="auction in activeAuctions" :key="auction.aukcija_sifra" class="q-mb-md">
           <q-card-section>
             <div class="row q-col-gutter-md items-center">
-              <div class="col-12 col-sm-4">
+              <div class="col-12 col-sm-3">
+                <q-img
+                  v-if="auction.fotografija_podatak"
+                  :src="auction.fotografija_podatak"
+                  style="height: 110px; border-radius: 20px"
+                  fit="contain"
+                />
+
                 <div
-                  class="flex flex-center rounded-borders"
-                  style="height: 120px; background-color: #f9f6ef; border: 1px solid #d4a017"
+                  v-else
+                  class="flex flex-center text-grey-7"
+                  style="
+                    height: 90px;
+                    background-color: #f9f6ef;
+                    border: 1px solid #d4a017;
+                    border-radius: 10px;
+                  "
                 >
                   Fotografija
                 </div>
               </div>
 
-              <div class="col-12 col-sm-8">
-                <div class="text-h6 text-dark">Vintage sat</div>
+              <div class="col-12 col-sm-9">
+                <div class="text-h6 text-dark">
+                  {{ auction.aukcija_naziv }}
+                </div>
 
-                <div class="text-body2 text-grey-8 q-mt-xs">Prodavatelj: @antikviteti_ri</div>
+                <div class="text-body2">
+                  Trenutna cijena:
+                  {{ formatPrice(auction.aukcija_cijena_trenutna) }}
+                </div>
 
-                <div class="text-body2 q-mt-sm">Stanje: očuvano</div>
-
-                <div class="text-body2">Početna cijena: 50 €</div>
-
-                <div class="text-h6 text-dark q-mt-sm">Trenutna cijena: 75 €</div>
+                <div class="text-body2">
+                  Završava:
+                  {{ formatDate(auction.aukcija_kraj) }}
+                </div>
 
                 <q-btn
-                  color="primary"
-                  text-color="dark"
-                  label="Pogledaj aukciju"
+                  color="secondary"
+                  text-color="white"
+                  label="Pregled aukcije"
                   no-caps
                   rounded
                   unelevated
                   class="q-mt-sm"
-                  to="/auctiondetail"
+                  @click="openAuction(auction)"
                 />
               </div>
             </div>
           </q-card-section>
         </q-card>
 
-        <q-card class="q-mb-lg">
-          <q-card-section>
-            <div class="row q-col-gutter-md items-center">
-              <div class="col-12 col-sm-4">
-                <div
-                  class="flex flex-center rounded-borders"
-                  style="height: 120px; background-color: #f9f6ef; border: 1px solid #d4a017"
-                >
-                  Fotografija
-                </div>
-              </div>
-
-              <div class="col-12 col-sm-8">
-                <div class="text-h6 text-dark">Umjetnička slika</div>
-
-                <div class="text-body2 text-grey-8 q-mt-xs">Prodavatelj: @galerija_ri</div>
-
-                <div class="text-body2 q-mt-sm">Stanje: vrlo dobro</div>
-
-                <div class="text-body2">Početna cijena: 200 €</div>
-
-                <div class="text-h6 text-dark q-mt-sm">Trenutna cijena:200 €</div>
-
-                <q-btn
-                  color="primary"
-                  text-color="dark"
-                  label="Pogledaj aukciju"
-                  no-caps
-                  rounded
-                  unelevated
-                  class="q-mt-sm"
-                  to="/auctiondetail"
-                />
-              </div>
-            </div>
-          </q-card-section>
-        </q-card>
-
-        <q-card class="q-mb-lg">
-          <q-card-section>
-            <div class="row q-col-gutter-md items-center">
-              <div class="col-12 col-sm-4">
-                <div
-                  class="flex flex-center rounded-borders"
-                  style="height: 120px; background-color: #f9f6ef; border: 1px solid #d4a017"
-                >
-                  Fotografija
-                </div>
-              </div>
-
-              <div class="col-12 col-sm-8">
-                <div class="text-h6 text-dark">Antikna vaza</div>
-
-                <div class="text-body2 text-grey-8 q-mt-xs">Prodavatelj: @antikvariajt</div>
-
-                <div class="text-body2 q-mt-sm">Stanje: dobro</div>
-
-                <div class="text-body2">Početna cijena: 120 €</div>
-
-                <div class="text-h6 text-dark q-mt-sm">Trenutna cijena: 145 €</div>
-
-                <q-btn
-                  color="primary"
-                  text-color="dark"
-                  label="Pogledaj aukciju"
-                  no-caps
-                  rounded
-                  unelevated
-                  class="q-mt-sm"
-                  to="/auctiondetail"
-                />
-              </div>
-            </div>
-          </q-card-section>
+        <q-card v-if="activeAuctions.length === 0" flat bordered>
+          <q-card-section class="text-grey-8"> Trenutno nema aktivnih aukcija. </q-card-section>
         </q-card>
       </div>
 
-      <!-- Završene aukcije -->
-      <div class="col-12 col-md-4">
+      <!-- Završene i najavljene aukcije -->
+      <div class="col-12 col-md-4 cursor-pointer" @click="router.push('/auctions')">
         <div
           class="text-h5 text-dark q-pa-md rounded-borders q-mb-md"
-          style="background-color: #ffffff; border-left: 5px solid #0f172a"
+          :style="
+            showUpcomingBlock
+              ? 'background-color: #fdf8e8; border-left: 5px solid #d4a017'
+              : 'background-color: #f4f6f9; border-left: 5px solid #0f172a'
+          "
         >
-          Završene aukcije
+          {{ showUpcomingBlock ? 'Najavljene aukcije' : 'Završene aukcije' }}
         </div>
-        <q-card class="q-mb-lg">
+        <q-card
+          v-for="auction in showUpcomingBlock ? upcomingAuctions : finishedAuctions"
+          :key="auction.aukcija_sifra"
+          class="q-mb-md"
+        >
           <q-card-section>
-            <div class="text-subtitle1">Džepni sat</div>
-            <div>Prodano za 180 €</div>
+            <div class="row q-col-gutter-sm items-center">
+              <div class="col-4">
+                <q-img
+                  v-if="auction.fotografija_podatak"
+                  :src="auction.fotografija_podatak"
+                  style="height: 70px; border-radius: 8px"
+                  fit="contain"
+                />
+
+                <div
+                  v-else
+                  class="flex flex-center text-grey-7"
+                  style="
+                    height: 100px;
+                    background-color: #f9f6ef;
+                    border: 3px solid #d4a017;
+                    border-radius: 8px;
+                  "
+                >
+                  Foto
+                </div>
+              </div>
+
+              <div class="col-8">
+                <div class="text-subtitle1 text-weight-medium">
+                  {{ auction.aukcija_naziv }}
+                </div>
+
+                <div class="text-body2">
+                  {{ showUpcomingBlock ? 'Početna cijena:' : 'Prodano za:' }}
+                  {{
+                    formatPrice(
+                      showUpcomingBlock
+                        ? auction.aukcija_cijena_pocetna
+                        : auction.aukcija_cijena_trenutna,
+                    )
+                  }}
+                </div>
+
+                <div class="text-caption text-grey-7">
+                  {{ showUpcomingBlock ? 'Počinje:' : 'Završeno:' }}
+                  {{
+                    formatDate(showUpcomingBlock ? auction.aukcija_pocetak : auction.aukcija_kraj)
+                  }}
+                </div>
+              </div>
+            </div>
           </q-card-section>
         </q-card>
 
-        <q-card class="q-mb-lg">
-          <q-card-section>
-            <div class="text-subtitle1">Keramička vaza</div>
-            <div>Prodano za 95 €</div>
-          </q-card-section>
+        <q-card
+          v-if="showUpcomingBlock ? upcomingAuctions.length === 0 : finishedAuctions.length === 0"
+          flat
+          bordered
+        >
+          <q-card-section class="text-grey-8"> Nema završenih aukcija. </q-card-section>
         </q-card>
       </div>
     </div>
   </div>
+
   <q-dialog v-model="systemReviewsDialog">
-    <q-card style="min-width: 900px; max-width: 95vw">
+    <q-card style="width: 95vw; max-width: 900px">
       <q-card-section>
         <div class="text-h6">Recenzije sustava AuctionGO</div>
       </q-card-section>
@@ -205,15 +257,16 @@
         />
       </q-card-section>
 
-      <q-card-actions align="right">
-        <q-btn flat label="Zatvori" v-close-popup />
+      <q-card-actions align="right" class="bg-white">
+        <q-btn flat label="Zatvori" color="primary" v-close-popup />
       </q-card-actions>
     </q-card>
   </q-dialog>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import axios from 'axios'
 
 const systemReviews = ref([])
@@ -254,13 +307,96 @@ const systemReviewColumns = [
   {
     name: 'datum',
     label: 'Datum',
-    field: 'recenzija_sustava_datum',
+    field: (row) =>
+      new Date(row.recenzija_sustava_datum).toLocaleString('hr-HR', {
+        day: 'numeric',
+        month: 'numeric',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
     align: 'left',
     sortable: true,
   },
 ]
 
+const auctions = ref([])
+
+async function fetchAuctions() {
+  try {
+    const response = await axios.get('http://localhost:3000/api/auctions')
+
+    auctions.value = response.data
+
+    console.log('Aktivne:', activeAuctions.value)
+    console.log('Najavljene:', upcomingAuctions.value)
+    console.log('Završene:', finishedAuctions.value)
+
+    console.log('Aukcije:', auctions.value)
+  } catch (error) {
+    console.error('Greška kod dohvaćanja aukcija:', error)
+  }
+}
+
+const upcomingAuctions = computed(() =>
+  auctions.value.filter((auction) => new Date(auction.aukcija_pocetak) > new Date()).slice(0, 3),
+)
+
+const activeAuctions = computed(() =>
+  auctions.value
+    .filter(
+      (auction) =>
+        new Date(auction.aukcija_pocetak) <= new Date() &&
+        new Date(auction.aukcija_kraj) > new Date() &&
+        auction.aukcija_status !== 'zavrsena',
+    )
+    .slice(0, 3),
+)
+
+const finishedAuctions = computed(() =>
+  auctions.value
+    .filter(
+      (auction) =>
+        auction.aukcija_status === 'zavrsena' ||
+        auction.aukcija_statusend === 'uspjesno zavrsena' ||
+        auction.aukcija_statusend === 'bez ponuda',
+    )
+    .slice(0, 3),
+)
+
+const router = useRouter()
+function formatPrice(value) {
+  return (
+    Number(value).toLocaleString('hr-HR', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }) + ' €'
+  )
+}
+
+function formatDate(value) {
+  return new Date(value).toLocaleDateString('hr-HR')
+}
+
+function openAuction(auction) {
+  router.push(`/auctiondetail/${auction.aukcija_sifra}`)
+}
+
+const showUpcomingBlock = ref(true)
+let auctionPanelInterval = null
+
 onMounted(async () => {
   await fetchSystemReviews()
+  await fetchAuctions()
+
+  auctionPanelInterval = setInterval(() => {
+    showUpcomingBlock.value = !showUpcomingBlock.value
+  }, 15000)
+})
+
+onUnmounted(() => {
+  if (auctionPanelInterval) {
+    clearInterval(auctionPanelInterval)
+  }
 })
 </script>

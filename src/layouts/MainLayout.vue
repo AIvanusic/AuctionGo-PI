@@ -15,8 +15,11 @@
           >
             AuctionGO!
           </router-link>
-          <q-btn flat round icon="help_outline" @click="openHelp">
+          <q-btn flat round icon="help_outline" style="color: #f9f6ef" @click="openHelp">
             <q-tooltip>Pomoć</q-tooltip>
+          </q-btn>
+          <q-btn flat round icon="mail_outline" @click="showContactInfo">
+            <q-tooltip>Kontakt</q-tooltip>
           </q-btn>
         </q-toolbar-title>
 
@@ -29,6 +32,7 @@
             unelevated
             rounded
             to="/login"
+            style="color: #f9f6ef"
             class="q-mr-sm"
           />
 
@@ -124,6 +128,8 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { redirectByRole } from '../utils/redirectByRole'
 import axios from 'axios'
 import { socket } from 'src/services/socket'
+import { useQuasar } from 'quasar'
+const $q = useQuasar()
 
 function getStoredUser() {
   try {
@@ -259,6 +265,18 @@ function handleHelpKey(event) {
     event.preventDefault()
     openHelp()
   }
+}
+
+function showContactInfo() {
+  $q.notify({
+    color: 'pink-7',
+    textColor: 'white',
+    icon: 'mail_outline',
+    message:
+      'Komunikacijski portal za podršku korisnicima planiran je u budućim verzijama sustava.',
+    position: 'center',
+    timeout: 6000,
+  })
 }
 
 onMounted(async () => {
