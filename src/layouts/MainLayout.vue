@@ -15,6 +15,9 @@
           >
             AuctionGO!
           </router-link>
+          <q-btn flat round icon="help_outline" @click="openHelp">
+            <q-tooltip>Pomoć</q-tooltip>
+          </q-btn>
         </q-toolbar-title>
 
         <template v-if="!user">
@@ -247,19 +250,33 @@ async function markAllNotificationsAsRead() {
   }
 }
 
+function openHelp() {
+  window.open('/AuctionGo-help.pdf', '_blank')
+}
+
+function handleHelpKey(event) {
+  if (event.key === 'F1') {
+    event.preventDefault()
+    openHelp()
+  }
+}
+
 onMounted(async () => {
+  window.addEventListener('keydown', handleHelpKey)
+
   await fetchUnreadCount()
   await fetchRecentNotifications()
-})
 
-socket.on('notification-created', async (data) => {
-  if (Number(data.userId) === Number(user.value?.korisnik_sifra)) {
-    await fetchUnreadCount()
-    await fetchRecentNotifications()
-  }
+  socket.on('notification-created', async (data) => {
+    if (Number(data.userId) === Number(user.value?.korisnik_sifra)) {
+      await fetchUnreadCount()
+      await fetchRecentNotifications()
+    }
+  })
 })
 
 onUnmounted(() => {
+  window.removeEventListener('keydown', handleHelpKey)
   socket.off('notification-created')
 })
 </script>
